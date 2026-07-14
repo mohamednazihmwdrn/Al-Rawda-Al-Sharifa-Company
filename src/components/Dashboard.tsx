@@ -209,20 +209,37 @@ export default function Dashboard({
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
           <div>
             <h3 className="text-lg font-bold text-gray-800 border-r-4 border-[#8b6b4d] pr-3 mb-4">📊 ملخص اليوم</h3>
-            <div className="space-y-3">
-              <p className="text-[#1e2b3c] font-black text-sm">
-                مرحباً بك يا {currentUser.displayName || currentUser.username}!
-              </p>
-              <p className="text-xs text-gray-600 leading-relaxed font-semibold">
-                نتمنى لك يوماً سعيداً ومليئاً بالإنجاز والخير والبركة في الروضة الشريفة. إن متابعة وتسجيل النواقص أولاً بأول يضمن سير العمل بكل كفاءة وسلاسة.
-              </p>
-              <div className="bg-[#f5f2ed] p-3 rounded-xl border-r-3 border-emerald-500 text-[11px] text-gray-700 font-bold space-y-1">
-                <p className="text-emerald-800 font-extrabold">📌 إرشادات سريعة للعمل اليومي:</p>
-                <p>• تأكد من صحة كميات النواقص والشركات المحددة.</p>
-                <p>• استخدم تحديث المزامنة للتأكد من مواءمة البيانات الجديدة.</p>
-                <p>• راجع قائمة فواتير النواقص لمتابعة البنود المستلمة والمرفوضة.</p>
+            {isManager ? (
+              <div className="space-y-3">
+                <p className="text-[#1e2b3c] font-black text-sm">
+                  مرحباً بك يا {currentUser.displayName || currentUser.username}! (المدير العام للنظام)
+                </p>
+                <p className="text-xs text-gray-600 leading-relaxed font-semibold">
+                  أهلاً بك في لوحة الإشراف والمتابعة الشاملة لنظام الروضة. يتيح لك النظام التحكم الكامل في مراجعة واعتماد الفواتير المدمجة الواردة من المستودعات لضمان سير العمل بكفاءة عالية.
+                </p>
+                <div className="bg-[#f5f2ed] p-3 rounded-xl border-r-3 border-[#8b6b4d] text-[11px] text-gray-700 font-bold space-y-1">
+                  <p className="text-[#8b6b4d] font-extrabold">📌 إرشادات الإدارة السريعة:</p>
+                  <p>• راجع الفواتير المدمجة بانتظار الاعتماد واعتمدها أو ارفضها.</p>
+                  <p>• تابع النواقص النشطة وحركة إرسال وتعبئة الفواتير اليومية.</p>
+                  <p>• استخدم الأرشيف والتقارير لمراقبة وإثبات استلام وتوزيع البضائع.</p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-[#1e2b3c] font-black text-sm">
+                  مرحباً بك يا {currentUser.displayName || currentUser.username}!
+                </p>
+                <p className="text-xs text-gray-600 leading-relaxed font-semibold">
+                  نتمنى لك يوماً سعيداً ومليئاً بالإنجاز والخير والبركة في الروضة الشريفة. إن متابعة وتسجيل النواقص أولاً بأول يضمن سير العمل بكل كفاءة وسلاسة.
+                </p>
+                <div className="bg-[#f5f2ed] p-3 rounded-xl border-r-3 border-emerald-500 text-[11px] text-gray-700 font-bold space-y-1">
+                  <p className="text-emerald-800 font-extrabold">📌 إرشادات سريعة للعمل اليومي:</p>
+                  <p>• تأكد من صحة كميات النواقص والشركات المحددة.</p>
+                  <p>• استخدم تحديث المزامنة للتأكد من مواءمة البيانات الجديدة.</p>
+                  <p>• راجع قائمة فواتير النواقص لمتابعة البنود المستلمة والمرفوضة.</p>
+                </div>
+              </div>
+            )}
           </div>
           <div className="mt-4 pt-3 border-t border-gray-50 flex items-center justify-between">
             <p className="text-xs text-gray-500 font-bold">صلّ على النبي اليوم ﷺ</p>
