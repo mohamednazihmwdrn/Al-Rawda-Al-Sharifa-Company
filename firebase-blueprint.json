@@ -1,0 +1,189 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user or warehouse account",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "displayName": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string" },
+        "warehouse": { "type": "string" }
+      },
+      "required": ["username", "displayName", "password", "role"]
+    },
+    "Item": {
+      "title": "Item",
+      "description": "An active, waiting, or deleted deficit item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "company": { "type": "string" },
+        "fixedName": { "type": "string" },
+        "description": { "type": "string" },
+        "note": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "warehouse": { "type": "string" },
+        "user": { "type": "string" },
+        "savedAt": { "type": "string" },
+        "status": { "type": "string" },
+        "duplicateFrom": { "type": "string" },
+        "duplicateNote": { "type": "boolean" },
+        "deletedAt": { "type": "string" },
+        "deletedFrom": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "rejectedAt": { "type": "string" }
+      },
+      "required": ["id", "company", "fixedName", "description", "status"]
+    },
+    "MergedInvoice": {
+      "title": "MergedInvoice",
+      "description": "Invoice merging deficits from multiple warehouses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "number" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "items": { "type": "array" },
+        "warehouses": { "type": "array" },
+        "total": { "type": "number" },
+        "status": { "type": "string" },
+        "unread": { "type": "boolean" },
+        "approvedAt": { "type": "string" },
+        "rejectedAt": { "type": "string" }
+      },
+      "required": ["id", "invoiceNumber", "date", "status", "items"]
+    },
+    "Archive": {
+      "title": "Archive",
+      "description": "Approved and archived deficit invoices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "warehouse": { "type": "string" },
+        "user": { "type": "string" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "approvedAt": { "type": "string" },
+        "merged": { "type": "boolean" },
+        "warehouses": { "type": "array" },
+        "invoiceNumber": { "type": "number" },
+        "unread": { "type": "boolean" },
+        "autoArchived": { "type": "boolean" }
+      },
+      "required": ["id", "title", "date", "items"]
+    },
+    "WarehouseArchive": {
+      "title": "WarehouseArchive",
+      "description": "Specific warehouse invoice archive entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "warehouse": { "type": "string" },
+        "user": { "type": "string" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "status": { "type": "string" },
+        "invoiceNumber": { "type": "number" },
+        "unread": { "type": "boolean" }
+      },
+      "required": ["id", "title", "date", "warehouse", "items"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Daily report entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "items": { "type": "array" },
+        "warehouse": { "type": "string" },
+        "total": { "type": "number" },
+        "invoiceNumber": { "type": "number" },
+        "approvedAt": { "type": "string" },
+        "autoArchived": { "type": "boolean" }
+      },
+      "required": ["id", "date", "items"]
+    },
+    "SavedItem": {
+      "title": "SavedItem",
+      "description": "Item template description for autocomplete and price tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "company": { "type": "string" },
+        "fixedName": { "type": "string" },
+        "note": { "type": "string" },
+        "price": { "type": "number" },
+        "lastPrice": { "type": "number" },
+        "lastUsed": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Quotation": {
+      "title": "Quotation",
+      "description": "Price quotation invoice",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientPhone": { "type": "string" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "user": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "date", "clientName", "items", "total", "status"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "User credentials and profiles"
+    },
+    "items": {
+      "schema": "Item",
+      "description": "Active, waiting, reported, or deleted deficit items"
+    },
+    "mergedInvoices": {
+      "schema": "MergedInvoice",
+      "description": "Combined deficit invoices for managerial approval"
+    },
+    "archives": {
+      "schema": "Archive",
+      "description": "General system archives"
+    },
+    "warehouseArchives": {
+      "schema": "WarehouseArchive",
+      "description": "Specific warehouse-level historical archives"
+    },
+    "reports": {
+      "schema": "Report",
+      "description": "Archived daily reports"
+    },
+    "savedItems": {
+      "schema": "SavedItem",
+      "description": "Items directory with pricing and auto-complete data"
+    },
+    "quotations": {
+      "schema": "Quotation",
+      "description": "Quotations issued by the manager"
+    }
+  }
+}

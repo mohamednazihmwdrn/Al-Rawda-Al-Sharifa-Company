@@ -1,0 +1,205 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  direction: rtl;
+  text-align: right;
+  background-color: #f5f2ed;
+  color: #1e2b3c;
+  font-family: var(--font-sans);
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f5f2ed;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4b48c;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8b6b4d;
+}
+
+/* Custom animation classes */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+/* ==========================================================================
+   🌙 Dark Mode Core Styles & Overrides
+   ========================================================================== */
+
+/* Root document transition */
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Backgrounds & Text */
+html.dark body {
+  background-color: #121212 !important;
+  color: #f3f4f6 !important;
+}
+
+html.dark .bg-white {
+  background-color: #1a1a1a !important;
+  color: #f3f4f6 !important;
+}
+
+html.dark .bg-[#f5f2ed] {
+  background-color: #121212 !important;
+}
+
+html.dark .bg-[#f5f2ed]/50 {
+  background-color: #242424 !important;
+}
+
+html.dark .bg-gray-50,
+html.dark .bg-gray-100 {
+  background-color: #242424 !important;
+  color: #e5e7eb !important;
+}
+
+html.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.1) !important;
+  color: #34d399 !important;
+}
+
+html.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+  color: #f87171 !important;
+}
+
+html.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.1) !important;
+  color: #fbbf24 !important;
+}
+
+html.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+  color: #60a5fa !important;
+}
+
+/* Text Overrides */
+html.dark .text-[#1e2b3c] {
+  color: #e5e7eb !important;
+}
+
+html.dark .text-gray-900,
+html.dark .text-gray-800 {
+  color: #f3f4f6 !important;
+}
+
+html.dark .text-gray-700,
+html.dark .text-gray-600 {
+  color: #d1d5db !important;
+}
+
+html.dark .text-gray-500,
+html.dark .text-gray-400 {
+  color: #9ca3af !important;
+}
+
+/* Borders */
+html.dark .border,
+html.dark .border-gray-100,
+html.dark .border-gray-200,
+html.dark .border-gray-300 {
+  border-color: #2d2d2d !important;
+}
+
+/* Inputs, Textareas, and Selects */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #242424 !important;
+  color: #f3f4f6 !important;
+  border-color: #3d3d3d !important;
+}
+
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus {
+  border-color: #8b6b4d !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Tables */
+html.dark table {
+  background-color: #1a1a1a !important;
+  color: #f3f4f6 !important;
+}
+
+html.dark th {
+  background-color: #242424 !important;
+  color: #f3f4f6 !important;
+  border-color: #2d2d2d !important;
+}
+
+html.dark td {
+  border-color: #2d2d2d !important;
+}
+
+html.dark tr:hover {
+  background-color: #242424 !important;
+}
+
+/* Interactive elements and lists */
+html.dark .hover\:bg-gray-50:hover,
+html.dark .hover\:bg-gray-100:hover {
+  background-color: #2a2a2a !important;
+}
+
+html.dark .divide-y > :not([hidden]) ~ :not([hidden]) {
+  border-color: #2d2d2d !important;
+}
+
+/* Custom Scrollbars in Dark Mode */
+html.dark ::-webkit-scrollbar-track {
+  background: #121212;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #444444;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #8b6b4d;
+}
+

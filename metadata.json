@@ -1,0 +1,6 @@
+{
+  "name": "الروضة الشريفة",
+  "description": "نظام متكامل لإدارة النواقص المركزية وعروض الأسعار لمستودعات ومخازن الروضة الشريفة مع مزامنة فورية لقاعدة البيانات.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
