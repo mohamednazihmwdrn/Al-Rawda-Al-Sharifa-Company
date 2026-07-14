@@ -144,58 +144,56 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
   });
   if (maxItemsInAnyCol === 0) maxItemsInAnyCol = 1;
 
-  // Dynamic scaling based on the maximum column height to fit perfectly on exactly one page (portrait)
-  let normalFontSize = 10.5;
-  let normalCellPadding = "2.5px 4px";
-  let normalHeaderPadding = "3px 4px";
-  let normalHeaderBottomMargin = "4px";
-  let normalBodyPadding = "4px";
-  let normalHeaderFontSize = 13;
-  let normalTitleFontSize = 12;
-  let normalSubTitleFontSize = 9.5;
-  let normalLogoFontSize = 8.5;
-  let normalPageMargin = "4mm 5mm"; // Default Portrait Margin as requested
-  let checkboxSize = 10;
+  // Professional, highly readable sizing for A4 printing (portrait)
+  let normalFontSize = 12.0;
+  let normalCellPadding = "4px 6px";
+  let normalHeaderPadding = "5px 6px";
+  let normalHeaderBottomMargin = "6px";
+  let normalBodyPadding = "6px";
+  let normalHeaderFontSize = 14;
+  let normalTitleFontSize = 13;
+  let normalSubTitleFontSize = 10;
+  let normalLogoFontSize = 9.5;
+  let normalPageMargin = "10mm"; // 10mm as requested
+  let checkboxSize = 12;
 
   if (maxItemsInAnyCol > 50) {
-    // Highly compressed for 50+ items
-    normalFontSize = 9.5;
-    normalCellPadding = "1.0px 2.5px";
-    normalHeaderPadding = "1.5px 2.5px";
-    normalHeaderBottomMargin = "2px";
-    normalBodyPadding = "2px";
-    normalHeaderFontSize = 11;
-    normalTitleFontSize = 10.5;
-    normalSubTitleFontSize = 8.0;
-    normalLogoFontSize = 7.5;
-    normalPageMargin = "3mm 4mm";
-    checkboxSize = 8;
+    // Elegant Multi-page flow style, font is not too small!
+    normalFontSize = 11.5;
+    normalCellPadding = "2.5px 4px";
+    normalHeaderPadding = "3px 4px";
+    normalHeaderBottomMargin = "4px";
+    normalBodyPadding = "4px";
+    normalHeaderFontSize = 13;
+    normalTitleFontSize = 12;
+    normalSubTitleFontSize = 9.5;
+    normalLogoFontSize = 9.0;
+    normalPageMargin = "10mm";
+    checkboxSize = 11;
   } else if (maxItemsInAnyCol > 35) {
-    // Compressed for 36-50 items
-    normalFontSize = 10.0;
-    normalCellPadding = "1.8px 3px";
-    normalHeaderPadding = "2.2px 3px";
-    normalHeaderBottomMargin = "2.5px";
-    normalBodyPadding = "2.5px";
-    normalHeaderFontSize = 12;
-    normalTitleFontSize = 11.0;
-    normalSubTitleFontSize = 8.5;
-    normalLogoFontSize = 8.0;
-    normalPageMargin = "3.5mm 4.5mm";
-    checkboxSize = 9;
+    normalFontSize = 11.8;
+    normalCellPadding = "3px 5px";
+    normalHeaderPadding = "4px 5px";
+    normalHeaderBottomMargin = "5px";
+    normalBodyPadding = "5px";
+    normalHeaderFontSize = 13.5;
+    normalTitleFontSize = 12.5;
+    normalSubTitleFontSize = 9.8;
+    normalLogoFontSize = 9.2;
+    normalPageMargin = "10mm";
+    checkboxSize = 11.5;
   } else if (maxItemsInAnyCol > 15) {
-    // Medium compression for 16-35 items
-    normalFontSize = 10.2;
-    normalCellPadding = "2px 3.5px";
-    normalHeaderPadding = "2.5px 3.5px";
-    normalHeaderBottomMargin = "3px";
-    normalBodyPadding = "3px";
-    normalHeaderFontSize = 12.5;
-    normalTitleFontSize = 11.5;
-    normalSubTitleFontSize = 9.0;
-    normalLogoFontSize = 8.2;
-    normalPageMargin = "4mm 5mm";
-    checkboxSize = 10;
+    normalFontSize = 12.0;
+    normalCellPadding = "3.5px 5.5px";
+    normalHeaderPadding = "4.5px 5.5px";
+    normalHeaderBottomMargin = "6px";
+    normalBodyPadding = "5.5px";
+    normalHeaderFontSize = 14;
+    normalTitleFontSize = 13;
+    normalSubTitleFontSize = 10;
+    normalLogoFontSize = 9.5;
+    normalPageMargin = "10mm";
+    checkboxSize = 12;
   }
 
   const activeWhs: string[] = [];
@@ -328,11 +326,8 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
               
               .side-by-side-container {
                   display: flex;
-                  gap: 8px;
+                  gap: 12px;
                   width: 100%;
-                  flex: 1;
-                  min-height: 0;
-                  overflow: hidden;
                   margin-bottom: 4px;
               }
               .print-column {
@@ -348,10 +343,10 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                   font-weight: 900;
                   background: #ffffff;
                   color: #000000;
-                  padding: 2px;
+                  padding: 3px;
                   border-radius: 4px;
                   border: 1.5px solid #000000;
-                  margin-bottom: 3px;
+                  margin-bottom: 4px;
                   white-space: nowrap;
                   text-overflow: ellipsis;
                   overflow: hidden;
@@ -363,7 +358,6 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                   font-size: ${normalFontSize}px;
                   border: 1.5px solid #000000;
                   table-layout: fixed;
-                  page-break-inside: avoid;
               }
               table th {
                   background: #ffffff !important;
@@ -381,7 +375,11 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                   background: white !important;
                   color: #000000 !important;
                   font-weight: 700;
-                  line-height: 1.1;
+                  line-height: 1.25;
+              }
+              tr {
+                  page-break-inside: avoid !important;
+                  break-inside: avoid !important;
               }
               
               .print-checkbox {
@@ -443,17 +441,36 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                       padding: 0 !important; 
                       margin: 0 !important; 
                       color: #000000 !important; 
-                      ${items.length <= 250 ? 'height: 100vh !important; overflow: hidden !important;' : ''}
+                      background: #ffffff !important;
+                      height: auto !important;
+                      overflow: visible !important;
                   }
                   .side-by-side-container {
-                      overflow: hidden !important;
+                      display: flex !important;
+                      flex-direction: row !important;
+                      gap: 12px !important;
+                      overflow: visible !important;
+                      page-break-inside: auto !important;
+                      break-inside: auto !important;
+                  }
+                  .print-column {
+                      flex: 1 !important;
+                      page-break-inside: auto !important;
+                      break-inside: auto !important;
+                  }
+                  table {
+                      page-break-inside: auto !important;
+                      break-inside: auto !important;
+                  }
+                  tr {
                       page-break-inside: avoid !important;
+                      break-inside: avoid !important;
                   }
                   table th { background: #ffffff !important; color: #000000 !important; }
                   table td { color: #000000 !important; font-weight: 700; }
                   .header { border-bottom: 2.5px solid #000000 !important; }
                   .footer { border-top: 2.5px solid #000000 !important; }
-                  thead { display: table-header-group; }
+                  thead { display: table-header-group !important; }
                   @page { 
                       size: A4 portrait !important; 
                       margin: ${normalPageMargin} !important; 
@@ -582,55 +599,55 @@ export function printMatrix(
   });
   if (maxItemsInAnyCol === 0) maxItemsInAnyCol = 1;
 
-  // Dynamic scaling for 4-column matrix layout
-  let matrixFontSize = 10;
-  let matrixCellPadding = "2px 3px";
-  let matrixHeaderPadding = "3px 3px";
-  let matrixHeaderBottomMargin = "4px";
-  let matrixBodyPadding = "4px";
+  // Professional, highly readable sizing for A4 matrix printing (landscape)
+  let matrixFontSize = 11.0;
+  let matrixCellPadding = "3px 4.5px";
+  let matrixHeaderPadding = "4px 4.5px";
+  let matrixHeaderBottomMargin = "5px";
+  let matrixBodyPadding = "5px";
   let matrixHeaderFontSize = 14;
-  let matrixTitleFontSize = 12;
-  let matrixSubTitleFontSize = 9.5;
-  let matrixLogoFontSize = 8.5;
-  let matrixPageMargin = "2mm 2.5mm";
-  let checkboxSize = 10;
+  let matrixTitleFontSize = 13;
+  let matrixSubTitleFontSize = 10;
+  let matrixLogoFontSize = 9.5;
+  let matrixPageMargin = "10mm"; // 10mm as requested
+  let checkboxSize = 11;
 
   if (maxItemsInAnyCol > 38) {
-    matrixFontSize = 7.2;
-    matrixCellPadding = "0.2px 1px";
-    matrixHeaderPadding = "0.8px 1px";
-    matrixHeaderBottomMargin = "1px";
-    matrixBodyPadding = "1px";
-    matrixHeaderFontSize = 10;
-    matrixTitleFontSize = 9.0;
-    matrixSubTitleFontSize = 7.0;
-    matrixLogoFontSize = 6.5;
-    matrixPageMargin = "1mm 1.2mm";
-    checkboxSize = 8;
-  } else if (maxItemsInAnyCol > 25) {
-    matrixFontSize = 8.5;
-    matrixCellPadding = "1px 2px";
-    matrixHeaderPadding = "1.5px 2px";
-    matrixHeaderBottomMargin = "2px";
-    matrixBodyPadding = "2px";
-    matrixHeaderFontSize = 12;
-    matrixTitleFontSize = 10.5;
-    matrixSubTitleFontSize = 8;
-    matrixLogoFontSize = 7.5;
-    matrixPageMargin = "1.5mm 1.8mm";
-    checkboxSize = 9;
-  } else if (maxItemsInAnyCol > 15) {
-    matrixFontSize = 9.5;
+    matrixFontSize = 10.0;
     matrixCellPadding = "2px 3px";
     matrixHeaderPadding = "2.5px 3px";
     matrixHeaderBottomMargin = "3px";
     matrixBodyPadding = "3px";
-    matrixHeaderFontSize = 13;
-    matrixTitleFontSize = 11.5;
+    matrixHeaderFontSize = 12;
+    matrixTitleFontSize = 11.0;
     matrixSubTitleFontSize = 8.5;
-    matrixLogoFontSize = 8;
-    matrixPageMargin = "2mm 2.5mm";
+    matrixLogoFontSize = 8.0;
+    matrixPageMargin = "10mm";
     checkboxSize = 10;
+  } else if (maxItemsInAnyCol > 25) {
+    matrixFontSize = 10.5;
+    matrixCellPadding = "2.5px 3.5px";
+    matrixHeaderPadding = "3px 3.5px";
+    matrixHeaderBottomMargin = "4px";
+    matrixBodyPadding = "4px";
+    matrixHeaderFontSize = 13;
+    matrixTitleFontSize = 12.0;
+    matrixSubTitleFontSize = 9.0;
+    matrixLogoFontSize = 8.8;
+    matrixPageMargin = "10mm";
+    checkboxSize = 10.5;
+  } else if (maxItemsInAnyCol > 15) {
+    matrixFontSize = 11.0;
+    matrixCellPadding = "3px 4px";
+    matrixHeaderPadding = "3.5px 4px";
+    matrixHeaderBottomMargin = "4px";
+    matrixBodyPadding = "4.5px";
+    matrixHeaderFontSize = 14;
+    matrixTitleFontSize = 12.5;
+    matrixSubTitleFontSize = 9.5;
+    matrixLogoFontSize = 9.2;
+    matrixPageMargin = "10mm";
+    checkboxSize = 11;
   }
 
   const activeWhs: string[] = [];
@@ -763,19 +780,16 @@ export function printMatrix(
               
               .side-by-side-container {
                   display: flex;
-                  gap: 4px;
+                  gap: 8px;
                   width: 100%;
-                  flex: 1;
-                  min-height: 0;
-                  overflow: hidden;
-                  margin-bottom: 6px;
+                  margin-bottom: 4px;
               }
               .print-column {
                   flex: 1;
                   display: flex;
                   flex-direction: column;
-                  min-width: 24%;
-                  margin-right: 6px;
+                  min-width: 23%;
+                  margin-right: 8px;
               }
               .print-column:last-child {
                   margin-right: 0px !important;
@@ -801,7 +815,6 @@ export function printMatrix(
                   font-size: ${matrixFontSize}px;
                   border: 1.5px solid #000000;
                   table-layout: fixed;
-                  page-break-inside: avoid;
               }
               table th {
                   background: #ffffff !important;
@@ -819,7 +832,11 @@ export function printMatrix(
                   background: white !important;
                   color: #000000 !important;
                   font-weight: 700;
-                  line-height: 1.05;
+                  line-height: 1.25;
+              }
+              tr {
+                  page-break-inside: avoid !important;
+                  break-inside: avoid !important;
               }
               
               .print-checkbox {
@@ -878,17 +895,36 @@ export function printMatrix(
                       padding: 0 !important; 
                       margin: 0 !important; 
                       color: #000000 !important; 
-                      ${items.length <= 250 ? 'height: 100vh !important; overflow: hidden !important;' : ''}
+                      background: #ffffff !important;
+                      height: auto !important;
+                      overflow: visible !important;
                   }
                   .side-by-side-container {
-                      overflow: hidden !important;
+                      display: flex !important;
+                      flex-direction: row !important;
+                      gap: 8px !important;
+                      overflow: visible !important;
+                      page-break-inside: auto !important;
+                      break-inside: auto !important;
+                  }
+                  .print-column {
+                      flex: 1 !important;
+                      page-break-inside: auto !important;
+                      break-inside: auto !important;
+                  }
+                  table {
+                      page-break-inside: auto !important;
+                      break-inside: auto !important;
+                  }
+                  tr {
                       page-break-inside: avoid !important;
+                      break-inside: avoid !important;
                   }
                   table th { background: #ffffff !important; color: #000000 !important; }
                   table td { color: #000000 !important; font-weight: 700; }
                   .header { border-bottom: 3px solid #000000 !important; }
                   .footer { border-top: 3px solid #000000 !important; }
-                  thead { display: table-header-group; }
+                  thead { display: table-header-group !important; }
                   @page { 
                       size: A4 landscape !important; 
                       margin: ${matrixPageMargin} !important; 
