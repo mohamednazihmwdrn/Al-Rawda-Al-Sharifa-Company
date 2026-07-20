@@ -221,7 +221,7 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
         <tr>
           <td style="width: 6%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${index + 1 + col.startIndex}</td>
           <td style="width: 11%; text-align: center; font-weight: 900; color: #000000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
-          <td style="width: 77%; text-align: right; font-weight: 700; padding-right: 4px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 280px;" title="${item.fixedName}">
+          <td style="width: 77%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${item.fixedName}">
             ${item.fixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
           </td>
           <td style="width: 6%; text-align: center; padding: 1px 0; white-space: nowrap;">
@@ -675,7 +675,7 @@ export function printMatrix(
         <tr>
           <td style="width: 10%; text-align: center;">${index + 1 + col.startIndex}</td>
           <td style="width: 15%; text-align: center; font-weight: 800; color: #8b6b4d;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
-          <td style="width: 65%; text-align: right; font-weight: 700; padding-right: 4px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 160px;" title="${item.fixedName}">
+          <td style="width: 65%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${item.fixedName}">
             ${item.fixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
           </td>
           <td style="width: 10%; text-align: center; padding: 1px 0;">
