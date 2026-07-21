@@ -2417,6 +2417,87 @@ export default function App() {
     setDetailsModal({ title, items: detailItems, onDeleteItem, onEditItem });
   };
 
+  const renderWarehouseNav = (sectionId: string, label: string, isCustom = false, customName?: string) => {
+    const isActive = activeSection === sectionId && (!isCustom || selectedCustomWarehouse === customName);
+    
+    return (
+      <div className="space-y-1">
+        <button
+          onClick={() => {
+            if (isCustom && customName) {
+              setSelectedCustomWarehouse(customName);
+            }
+            setActiveSection(sectionId as any);
+            setWhActiveTab("sent");
+            setSidebarOpen(false);
+          }}
+          className={`w-full flex items-center justify-between p-3 rounded-xl text-right text-sm font-semibold transition-all cursor-pointer ${
+            isActive ? "bg-[#8b6b4d]/30 text-white font-bold" : "text-gray-300 hover:bg-white/5"
+          }`}
+        >
+          <span>📦 {label}</span>
+          <span className="text-[10px] text-gray-400">{isActive ? "▲" : "▼"}</span>
+        </button>
+
+        {isActive && (
+          <div className="mr-4 pr-2 border-r border-white/10 space-y-1.5 mt-1">
+            <button
+              onClick={() => {
+                if (isCustom && customName) {
+                  setSelectedCustomWarehouse(customName);
+                }
+                setActiveSection(sectionId as any);
+                setWhActiveTab("sent");
+                setSidebarOpen(false);
+              }}
+              className={`w-full text-right py-2 px-3 rounded-lg text-xs font-semibold block transition-all cursor-pointer ${
+                whActiveTab === "sent"
+                  ? "bg-[#8b6b4d]/40 text-white font-bold"
+                  : "text-gray-400 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              📋 قسم الفواتير المرسلة للمدير
+            </button>
+            <button
+              onClick={() => {
+                if (isCustom && customName) {
+                  setSelectedCustomWarehouse(customName);
+                }
+                setActiveSection(sectionId as any);
+                setWhActiveTab("received");
+                setSidebarOpen(false);
+              }}
+              className={`w-full text-right py-2 px-3 rounded-lg text-xs font-semibold block transition-all cursor-pointer ${
+                whActiveTab === "received"
+                  ? "bg-emerald-600/30 text-emerald-200 font-bold"
+                  : "text-gray-400 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              🚚 قسم المستلمات وتأكيد البضاعة
+            </button>
+            <button
+              onClick={() => {
+                if (isCustom && customName) {
+                  setSelectedCustomWarehouse(customName);
+                }
+                setActiveSection(sectionId as any);
+                setWhActiveTab("not-arrived");
+                setSidebarOpen(false);
+              }}
+              className={`w-full text-right py-2 px-3 rounded-lg text-xs font-semibold block transition-all cursor-pointer ${
+                whActiveTab === "not-arrived"
+                  ? "bg-red-600/30 text-red-200 font-bold"
+                  : "text-gray-400 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              ⚠️ قسم النواقص التي لم تصل
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (!currentUser) {
     return <Login users={users} onLoginSuccess={handleLoginSuccess} />;
   }
@@ -2530,36 +2611,15 @@ export default function App() {
 
             {/* Warehouse routes */}
             {hasPermission(currentUser, "warehouse-manager") && (
-              <button
-                onClick={() => { setActiveSection("warehouse-manager"); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl text-right text-sm font-semibold transition-all cursor-pointer ${
-                  activeSection === "warehouse-manager" ? "bg-[#8b6b4d]/30 text-white" : "text-gray-300 hover:bg-white/5"
-                }`}
-              >
-                📦 مخزن المدير
-              </button>
+              renderWarehouseNav("warehouse-manager", "مخزن المدير")
             )}
 
             {hasPermission(currentUser, "warehouse-nahas") && (
-              <button
-                onClick={() => { setActiveSection("warehouse-nahas"); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl text-right text-sm font-semibold transition-all cursor-pointer ${
-                  activeSection === "warehouse-nahas" ? "bg-[#8b6b4d]/30 text-white" : "text-gray-300 hover:bg-white/5"
-                }`}
-              >
-                📦 مخزن النحاس
-              </button>
+              renderWarehouseNav("warehouse-nahas", "مخزن النحاس")
             )}
 
             {hasPermission(currentUser, "warehouse-nady") && (
-              <button
-                onClick={() => { setActiveSection("warehouse-nady"); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl text-right text-sm font-semibold transition-all cursor-pointer ${
-                  activeSection === "warehouse-nady" ? "bg-[#8b6b4d]/30 text-white" : "text-gray-300 hover:bg-white/5"
-                }`}
-              >
-                📦 مخزن النادي
-              </button>
+              renderWarehouseNav("warehouse-nady", "مخزن النادي")
             )}
 
             {hasPermission(currentUser, "smart-print") && (
@@ -2586,33 +2646,16 @@ export default function App() {
                       if (seenWarehouses.has(wh)) return null;
                       seenWarehouses.add(wh);
                       return (
-                        <button
-                          key={user.username}
-                          onClick={() => {
-                            setSelectedCustomWarehouse(user.warehouse || null);
-                            setActiveSection("warehouse-custom");
-                            setSidebarOpen(false);
-                          }}
-                          className={`w-full p-3 rounded-xl text-right text-sm font-semibold transition-all cursor-pointer ${
-                            activeSection === "warehouse-custom" && selectedCustomWarehouse === user.warehouse ? "bg-[#8b6b4d]/30 text-white" : "text-gray-300 hover:bg-white/5"
-                          }`}
-                        >
-                          📦 {user.warehouse}
-                        </button>
+                        <div key={user.username}>
+                          {renderWarehouseNav("warehouse-custom", user.warehouse, true, user.warehouse)}
+                        </div>
                       );
                     });
                   })()}
                 </>
               ) : (
                 currentUser.warehouse && currentUser.warehouse !== "مخزن النحاس" && currentUser.warehouse !== "مخزن النادي" && (
-                  <button
-                    onClick={() => { setActiveSection("warehouse-custom"); setSidebarOpen(false); }}
-                    className={`w-full flex items-center gap-3 p-3 rounded-xl text-right text-sm font-semibold transition-all cursor-pointer ${
-                      activeSection === "warehouse-custom" ? "bg-[#8b6b4d]/30 text-white" : "text-gray-300 hover:bg-white/5"
-                    }`}
-                  >
-                    📦 {currentUser.warehouse}
-                  </button>
+                  renderWarehouseNav("warehouse-custom", currentUser.warehouse, true, currentUser.warehouse)
                 )
               )
             )}
