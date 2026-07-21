@@ -180,6 +180,8 @@ export default function App() {
 
   const [receiptReceivedQty, setReceiptReceivedQty] = useState("");
   const [receiptRemainingQty, setReceiptRemainingQty] = useState("");
+  const [whActiveTab, setWhActiveTab] = useState<"sent" | "received" | "not-arrived">("sent");
+  const [whExpandedInvs, setWhExpandedInvs] = useState<{ [key: string]: boolean }>({});
 
   React.useEffect(() => {
     if (receiptConfirmModal) {
@@ -1679,7 +1681,7 @@ export default function App() {
       case "warehouse-manager":
       case "warehouse-nahas":
       case "warehouse-nady":
-      case "warehouse-custom":
+      case "warehouse-custom": {
         if (!hasPermission(currentUser, activeSection)) {
           return (
             <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -1695,98 +1697,290 @@ export default function App() {
         const whItems = items.filter(i => i.warehouse === whName && i.status === "active");
         const whArchiveList = warehouseArchives.filter(a => a.warehouse === whName);
 
+        // Filter approved merged invoices containing items for this warehouse
+        const approvedInvs = mergedInvoices.filter(m => {
+          if (m.status !== "approved" && m.status !== "auto_approved") return false;
+          return m.items.some(it => (it.warehouse || "").trim().includes(whName.trim()));
+        });
+
+        // Handler to re-send non-arrived items
+        const handleResendNotArrivedItems = async (itemsToResend: Item[]) => {
+          if (!currentUser || itemsToResend.length === 0) return;
+          const wh = currentUser.warehouse || whName;
+          const today = getToday();
+          
+          if (!confirm(`هل أنت متأكد من إعادة إرسال عدد (${itemsToResend.length}) صنف لم يصل إلى المدير العام اليوم كنواقص جديدة؟`)) {
+            return;
+          }
+
+          try {
+            for (const itemToResend of itemsToResend) {
+              const qtyToResend = itemToResend.hasPartialReceipt && itemToResend.remainingQty && itemToResend.remainingQty !== "0"
+                ? itemToResend.remainingQty
+                : itemToResend.company;
+
+              const newId = itemToResend.id + "_resend_" + Date.now() + Math.random().toString(36).slice(2, 5);
+              const originalNoteStr = itemToResend.note && itemToResend.note !== "-" ? itemToResend.note : "";
+              const resendNote = originalNoteStr 
+                ? `${originalNoteStr} (إعادة إرسال لبند لم يصل من طلب بتاريخ ${itemToResend.date})`
+                : `(إعادة إرسال لبند لم يصل من طلب بتاريخ ${itemToResend.date})`;
+
+              const newItem: Item = {
+                id: newId,
+                company: qtyToResend,
+                fixedName: itemToResend.fixedName,
+                description: itemToResend.description || "",
+                note: resendNote,
+                date: today,
+                time: getNow(),
+                warehouse: itemToResend.warehouse || wh,
+                user: currentUser.displayName || currentUser.username,
+                savedAt: getFullDate(),
+                status: "waiting", // back to waiting for manager approval
+                deliveryStatus: "pending",
+                createdAt: Date.now()
+              };
+
+              await saveItem(newItem);
+            }
+
+            await autoMergePendingInvoices();
+            alert("✅ تم إعادة إرسال الأصناف المحددة بنجاح إلى المدير العام وتحديث قائمتك اليوم!");
+          } catch (err) {
+            console.error("Failed to re-send items:", err);
+            alert("حدث خطأ أثناء محاولة إعادة إرسال الأصناف.");
+          }
+        };
+
+        const handleFullReceiptDirect = async (invoiceId: string, item: Item) => {
+          const qty = item.remainingQty || item.company;
+          await handleConfirmPartialReceipt(invoiceId, item.id, qty, "0");
+        };
+
         return (
           <div className="space-y-6">
-            {/* Active listing */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-gray-800 border-r-4 border-[#8b6b4d] pr-3">📦 {whName} - النواقص النشطة</h2>
-                <div className="flex gap-2 text-xs">
-                  <button
-                    onClick={() => printInvoice(whItems, `نواقص ${whName}`, whName, currentUser.displayName || currentUser.username)}
-                    className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white p-2 px-3 rounded-lg font-bold cursor-pointer"
-                  >
-                    🖨️ طباعة
-                  </button>
-                  <button
-                    onClick={() => printMatrix(whItems, `مصفوفة ${whName}`, whName, undefined, currentUser.displayName || currentUser.username)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white p-2 px-3 rounded-lg font-bold cursor-pointer"
-                  >
-                    ⊞ طباعة مصفوفة
-                  </button>
-                </div>
+            {/* Header with Warehouse Title */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-gray-800 border-r-4 border-[#8b6b4d] pr-3 flex items-center gap-2">
+                  <span>📦 {whName}</span>
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">إدارة الطلبات، استلام البضائع، ومعالجة النواقص التي لم تصل.</p>
               </div>
 
-              <div className="space-y-3">
-                {whItems.length === 0 ? (
-                  <p className="text-gray-400 text-center py-8">لا توجد نواقص نشطة للمستودع حالياً.</p>
-                ) : (
-                  whItems.map((item, index) => (
-                    <div key={item.id} className="p-3 bg-gray-50 border rounded-xl flex justify-between items-center gap-4">
-                      <div>
-                        <strong className="text-sm font-bold text-[#8b6b4d]">{index+1}. {item.company}</strong>
-                        <span className="text-xs text-gray-700 font-semibold mr-2">{item.fixedName} - {item.description}</span>
-                        {item.note && <p className="text-xs text-gray-500 mt-1">📝 ملاحظة: {item.note}</p>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-400">{item.date}</span>
-                        {isManager && (
-                          <div className="flex gap-1.5">
-                            <button
-                              onClick={() => setEditingItem({
-                                id: item.id,
-                                parentType: "items",
-                                company: item.company,
-                                fixedName: item.fixedName || "",
-                                description: item.description,
-                                note: item.note || ""
-                              })}
-                              className="bg-amber-500 hover:bg-amber-600 text-amber-950 p-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                              title="تعديل البند"
-                            >
-                              ✏️ تعديل
-                            </button>
-                            <button
-                              onClick={() => handleDeleteActiveItem(item.id)}
-                              className="bg-red-600 hover:bg-red-700 text-white p-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                              title="حذف البند"
-                            >
-                              🗑️ حذف
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
+              <div className="flex gap-2 text-xs">
+                <button
+                  onClick={() => printInvoice(whItems, `نواقص ${whName}`, whName, currentUser.displayName || currentUser.username)}
+                  className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white p-2.5 px-4 rounded-xl font-bold cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  🖨️ طباعة النواقص النشطة
+                </button>
+                <button
+                  onClick={() => printMatrix(whItems, `مصفوفة ${whName}`, whName, undefined, currentUser.displayName || currentUser.username)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 px-4 rounded-xl font-bold cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  ⊞ طباعة المصفوفة
+                </button>
               </div>
             </div>
 
-            {/* Approved Goods Confirmation section */}
-            {(() => {
-              // Filter approved merged invoices containing items for this warehouse
-              const approvedInvs = mergedInvoices.filter(m => {
-                if (m.status !== "approved" && m.status !== "auto_approved") return false;
-                return m.items.some(it => (it.warehouse || "").trim().includes(whName.trim()));
-              });
+            {/* Main Tabs Navigation */}
+            <div className="flex border-b border-gray-200">
+              <button
+                onClick={() => setWhActiveTab("sent")}
+                className={`flex-1 py-3 text-center font-bold text-sm border-b-2 transition-all cursor-pointer ${
+                  whActiveTab === "sent"
+                    ? "border-[#8b6b4d] text-[#8b6b4d]"
+                    : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                📋 1. قسم الفواتير المرسلة للمدير
+              </button>
+              <button
+                onClick={() => setWhActiveTab("received")}
+                className={`flex-1 py-3 text-center font-bold text-sm border-b-2 transition-all cursor-pointer ${
+                  whActiveTab === "received"
+                    ? "border-emerald-500 text-emerald-600"
+                    : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                🚚 2. قسم المستلمات وتأكيد وصول البضاعة
+              </button>
+              <button
+                onClick={() => setWhActiveTab("not-arrived")}
+                className={`flex-1 py-3 text-center font-bold text-sm border-b-2 transition-all cursor-pointer ${
+                  whActiveTab === "not-arrived"
+                    ? "border-red-500 text-red-600"
+                    : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                ⚠️ 3. قسم النواقص التي لم تصل (إعادة إرسال)
+              </button>
+            </div>
 
-              if (approvedInvs.length === 0) return null;
+            {/* TAB CONTENT RENDERING */}
+            
+            {/* TAB 1: SENT INVOICES */}
+            {whActiveTab === "sent" && (() => {
+              const whSentInvs = mergedInvoices.filter(m => 
+                m.items.some(it => (it.warehouse || "").trim().includes(whName.trim()))
+              );
+
+              return (
+                <div className="space-y-6">
+                  {/* Active Shortages (Quick View) */}
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">📦 الأصناف النشطة المسجلة حالياً</h3>
+                    <div className="space-y-3">
+                      {whItems.length === 0 ? (
+                        <p className="text-gray-400 text-center py-4 text-xs">لا توجد نواقص نشطة للمستودع حالياً.</p>
+                      ) : (
+                        whItems.map((item, index) => (
+                          <div key={item.id} className="p-3 bg-gray-50 border rounded-xl flex justify-between items-center gap-4">
+                            <div>
+                              <strong className="text-sm font-bold text-[#8b6b4d]">{index+1}. {item.company}</strong>
+                              <span className="text-xs text-gray-700 font-semibold mr-2">{item.fixedName} - {item.description}</span>
+                              {item.note && <p className="text-xs text-gray-500 mt-1">📝 ملاحظة: {item.note}</p>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-400">{item.date}</span>
+                              {isManager && (
+                                <div className="flex gap-1.5">
+                                  <button
+                                    onClick={() => setEditingItem({
+                                      id: item.id,
+                                      parentType: "items",
+                                      company: item.company,
+                                      fixedName: item.fixedName || "",
+                                      description: item.description,
+                                      note: item.note || ""
+                                    })}
+                                    className="bg-amber-500 hover:bg-amber-600 text-amber-950 p-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                  >
+                                    ✏️ تعديل
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteActiveItem(item.id)}
+                                    className="bg-red-600 hover:bg-red-700 text-white p-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                  >
+                                    🗑️ حذف
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sent Daily Invoices List */}
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <h3 className="text-lg font-bold text-gray-800 mb-4 border-r-4 border-[#8b6b4d] pr-3">📋 قائمة الفواتير المرسلة للمدير</h3>
+                    <div className="space-y-4">
+                      {whSentInvs.length === 0 ? (
+                        <p className="text-gray-400 text-center py-8 text-sm">لا توجد فواتير مرسلة مسبقاً.</p>
+                      ) : (
+                        whSentInvs.map((inv) => {
+                          const whInvoiceItems = inv.items.filter(it => (it.warehouse || "").trim().includes(whName.trim()));
+                          const isExpanded = !!whExpandedInvs[inv.id];
+
+                          return (
+                            <div key={inv.id} className="border rounded-xl overflow-hidden shadow-sm bg-gray-50/30">
+                              <div 
+                                onClick={() => setWhExpandedInvs(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))}
+                                className="p-4 bg-white hover:bg-gray-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 cursor-pointer select-none transition-all"
+                              >
+                                <div>
+                                  <strong className="text-sm font-bold text-[#1e2b3c] block sm:inline">📄 بيان النواقص اليومي رقم #{inv.invoiceNumber}</strong>
+                                  <span className="text-xs text-gray-400 sm:mr-3">التاريخ: {inv.date} | عدد بنود المخزن: {whInvoiceItems.length}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {inv.status === "pending" ? (
+                                    <span className="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-bold">⏳ بانتظار مراجعة المدير</span>
+                                  ) : inv.status === "approved" || inv.status === "auto_approved" ? (
+                                    <span className="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-bold">🟢 معتمدة وجاري استلامها</span>
+                                  ) : (
+                                    <span className="bg-red-100 text-red-800 text-xs px-2.5 py-1 rounded-full font-bold">❌ تم رفضها</span>
+                                  )}
+                                  <span className="text-gray-400 text-xs">{isExpanded ? "▲ إخفاء" : "▼ عرض التفاصيل"}</span>
+                                </div>
+                              </div>
+
+                              {isExpanded && (
+                                <div className="p-4 border-t bg-white space-y-3">
+                                  <div className="flex justify-between items-center pb-2 border-b">
+                                    <span className="text-xs font-bold text-gray-500">تفاصيل أصناف الفاتورة:</span>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        printInvoice(whInvoiceItems, `فاتورة رقم ${inv.invoiceNumber} - ${inv.date}`, whName, currentUser.displayName || currentUser.username);
+                                      }}
+                                      className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-[11px] font-bold p-1.5 px-3 rounded-lg cursor-pointer"
+                                    >
+                                      🖨️ طباعة هذه الفاتورة
+                                    </button>
+                                  </div>
+                                  <div className="space-y-2">
+                                    {whInvoiceItems.map((item, idx) => (
+                                      <div key={item.id || idx} className="p-2.5 bg-gray-50 rounded-lg flex justify-between items-center text-xs">
+                                        <div>
+                                          <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2 py-0.5 rounded text-[10px] ml-2">مطلوب: {item.company}</span>
+                                          <strong className="text-gray-800">{item.fixedName}</strong>
+                                          <span className="text-gray-500 mr-2">{item.description && item.description !== "-" && `(${item.description})`}</span>
+                                          {item.note && <p className="text-[10px] text-gray-400 mt-1">📝 ملاحظة: {item.note}</p>}
+                                        </div>
+                                        <div>
+                                          {item.deliveryStatus === "received" ? (
+                                            <span className="text-emerald-600 font-extrabold text-[10px]">✓ تم الاستلام بالكامل</span>
+                                          ) : item.deliveryStatus === "delayed" ? (
+                                            <span className="text-red-500 font-extrabold text-[10px]">✖ لم يصل بعد</span>
+                                          ) : item.hasPartialReceipt ? (
+                                            <span className="text-amber-600 font-extrabold text-[10px]">🟡 تم الاستلام جزئياً (المتبقي: {item.remainingQty})</span>
+                                          ) : (
+                                            <span className="text-gray-400 font-bold text-[10px]">⏳ بانتظار الشحن والاستلام</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* TAB 2: RECEIVED INVOICES & GOODS RECEIPT */}
+            {whActiveTab === "received" && (() => {
+              if (approvedInvs.length === 0) {
+                return (
+                  <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium border shadow-sm">
+                    لا توجد فواتير معتمدة من المدير العام بانتظار الاستلام حالياً.
+                  </div>
+                );
+              }
 
               return (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-100" id="approved-warehouse-items-receipt">
                   <div className="flex justify-between items-center mb-6 border-b pb-3 border-emerald-50">
                     <h2 className="text-lg font-bold text-emerald-800 flex items-center gap-2">
-                      <span>🚚 استلام البضائع والفواتير المعتمدة من المدير (صنف صنف)</span>
+                      <span>🚚 استلام البضائع والفواتير المعتمدة</span>
                     </h2>
                     <span className="text-xs bg-emerald-50 text-emerald-800 border border-emerald-100 px-3 py-1 rounded-full font-bold">
                       عدد الفواتير: {approvedInvs.length}
                     </span>
                   </div>
 
-                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
+                  <div className="space-y-6 max-h-[700px] overflow-y-auto pr-1">
                     {approvedInvs.map((inv) => {
                       const whInvoiceItems = inv.items.filter(it => (it.warehouse || "").trim().includes(whName.trim()));
-                      const pendingCount = whInvoiceItems.filter(it => it.deliveryStatus !== "received").length;
+                      const pendingCount = whInvoiceItems.filter(it => it.deliveryStatus !== "received" && it.deliveryStatus !== "delayed").length;
 
                       return (
                         <div key={inv.id} className={`p-4 rounded-xl border transition-all ${pendingCount > 0 ? "bg-amber-50/15 border-amber-200" : "bg-emerald-50/15 border-emerald-100"}`}>
@@ -1806,11 +2000,11 @@ export default function App() {
                               const isDelayed = item.deliveryStatus === "delayed";
 
                               return (
-                                <div key={item.id || itemIdx} className="p-2.5 bg-gray-50/50 border rounded-lg flex justify-between items-center text-xs hover:bg-gray-50 transition-all">
+                                <div key={item.id || itemIdx} className="p-3 bg-gray-50/50 border rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 text-xs hover:bg-gray-50 transition-all">
                                   <div>
                                     <div className="flex items-center gap-2 flex-wrap">
                                       {item.hasPartialReceipt ? (
-                                        <span className="bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400 font-extrabold px-2 py-0.5 rounded text-[10px] border border-red-100 dark:border-red-900/20 animate-pulse">
+                                        <span className="bg-red-50 text-red-700 font-extrabold px-2 py-0.5 rounded text-[10px] border border-red-100 animate-pulse">
                                           متبقي: {item.remainingQty} (مطلوب: {item.originalQty || item.company})
                                         </span>
                                       ) : (
@@ -1825,15 +2019,15 @@ export default function App() {
                                       <span>{item.description && item.description !== "-" && item.description}</span>
                                       {item.note && item.note !== "-" && <span className="mr-2">📝 ملاحظة: {item.note}</span>}
                                       {item.hasPartialReceipt && (
-                                        <span className="mr-2 text-emerald-600 dark:text-emerald-400 font-bold">✓ مستلم سابقاً: {item.receivedQty}</span>
+                                        <span className="mr-2 text-emerald-600 font-bold">✓ مستلم سابقاً: {item.receivedQty}</span>
                                       )}
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-2 shrink-0">
+                                  <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
                                     {isReceived ? (
                                       <div className="flex items-center gap-1.5">
-                                        <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold text-[10px]">🟢 تم الاستلام في {item.deliveredAt || inv.date}</span>
+                                        <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold text-[10px]">🟢 تم الاستلام في {item.deliveredAt || inv.date}</span>
                                         <button
                                           onClick={() => handleUpdateItemDeliveryStatus(inv.id, item.id, "delayed")}
                                           className="text-[10px] text-gray-400 hover:text-red-500 cursor-pointer p-1 rounded"
@@ -1844,25 +2038,39 @@ export default function App() {
                                       </div>
                                     ) : isDelayed ? (
                                       <div className="flex items-center gap-1.5">
-                                        <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-bold text-[10px]">🔴 لم يصل بعد</span>
-                                        <button
-                                          onClick={() => setReceiptConfirmModal({
-                                            invoiceId: inv.id,
-                                            itemId: item.id,
-                                            itemName: item.fixedName,
-                                            requiredQty: item.remainingQty || item.company,
-                                            originalQty: item.originalQty || item.company,
-                                            receivedQty: item.receivedQty || ""
-                                          })}
-                                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-0.5 px-2 rounded cursor-pointer text-[10px]"
-                                          title="تأكيد الاستلام"
-                                        >
-                                          ✓ تم الاستلام
-                                        </button>
+                                        <span className="bg-red-100 text-red-800 px-2.5 py-1 rounded-full font-bold text-[10px]">🔴 لم يصل بعد</span>
+                                        <div className="flex gap-1.5">
+                                          <button
+                                            onClick={() => handleFullReceiptDirect(inv.id, item)}
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-1 px-2.5 rounded-lg cursor-pointer text-[10px]"
+                                          >
+                                            ✓ استلام كلي
+                                          </button>
+                                          <button
+                                            onClick={() => setReceiptConfirmModal({
+                                              invoiceId: inv.id,
+                                              itemId: item.id,
+                                              itemName: item.fixedName,
+                                              requiredQty: item.remainingQty || item.company,
+                                              originalQty: item.originalQty || item.company,
+                                              receivedQty: item.receivedQty || ""
+                                            })}
+                                            className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-1 px-2.5 rounded-lg cursor-pointer text-[10px]"
+                                          >
+                                            🔢 استلام بالعدد
+                                          </button>
+                                        </div>
                                       </div>
                                     ) : (
                                       <div className="flex gap-1.5">
                                         <button
+                                          onClick={() => handleFullReceiptDirect(inv.id, item)}
+                                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-1 px-2.5 rounded-lg shadow-sm cursor-pointer text-[10px]"
+                                          title="استلام كامل الكمية"
+                                        >
+                                          ✓ استلام كلي
+                                        </button>
+                                        <button
                                           onClick={() => setReceiptConfirmModal({
                                             invoiceId: inv.id,
                                             itemId: item.id,
@@ -1871,15 +2079,15 @@ export default function App() {
                                             originalQty: item.originalQty || item.company,
                                             receivedQty: item.receivedQty || ""
                                           })}
-                                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-1 px-2.5 rounded shadow-sm cursor-pointer text-[10px]"
-                                          title="تم الاستلام ✅"
+                                          className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-1 px-2.5 rounded-lg shadow-sm cursor-pointer text-[10px]"
+                                          title="استلام جزئي بالعدد"
                                         >
-                                          ✓ استلام
+                                          🔢 استلام بالعدد
                                         </button>
                                         <button
                                           onClick={() => handleUpdateItemDeliveryStatus(inv.id, item.id, "delayed")}
-                                          className="bg-amber-500 hover:bg-amber-600 text-white font-extrabold py-1 px-2.5 rounded shadow-sm cursor-pointer text-[10px]"
-                                          title="لم يصل بعد ❌"
+                                          className="bg-amber-500 hover:bg-amber-600 text-white font-extrabold py-1 px-2.5 rounded-lg shadow-sm cursor-pointer text-[10px]"
+                                          title="لم يصل بعد"
                                         >
                                           ✖ لم يصل
                                         </button>
@@ -1897,6 +2105,128 @@ export default function App() {
                 </div>
               );
             })()}
+
+            {/* TAB 3: UNRECEIVED ITEMS & RESEND */}
+            {whActiveTab === "not-arrived" && (() => {
+              // Group unreceived/delayed items
+              const notArrivedGroups = approvedInvs.map(inv => {
+                const unarrived = inv.items.filter(item => {
+                  if (!(item.warehouse || "").trim().includes(whName.trim())) return false;
+                  const isDelayed = item.deliveryStatus === "delayed";
+                  const isPartialWithRemaining = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
+                  return isDelayed || isPartialWithRemaining;
+                });
+                return { inv, items: unarrived };
+              }).filter(g => g.items.length > 0);
+
+              if (notArrivedGroups.length === 0) {
+                return (
+                  <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium border shadow-sm">
+                    لا توجد بنود مصنفة "لم تصل" أو متبقيات بانتظار الاستلام حالياً.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-6">
+                  <div className="bg-red-50/50 border border-red-100 p-4 rounded-xl text-xs text-red-900 font-semibold leading-relaxed">
+                    💡 هنا تظهر الأصناف التي قمت بوضع علامة (لم يصل) عليها أثناء استلام البضائع، أو التي تم استلامها جزئياً ولا يزال هناك متبقي منها. يمكنك إعادة إرسال الأصناف غير الواصلة بضغطة واحدة إلى المدير العام ليقوم باعتمادها مرة أخرى في اليوم التالي كنواقص نشطة بانتظار الترحيل.
+                  </div>
+
+                  <div className="space-y-4">
+                    {notArrivedGroups.map(({ inv, items: groupItems }) => (
+                      <div key={inv.id} className="bg-white p-6 rounded-2xl shadow-sm border border-red-100">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-3 mb-4">
+                          <div>
+                            <strong className="text-sm font-bold text-red-900">📄 فواتير نواقص معلقة من الفاتورة رقم #{inv.invoiceNumber}</strong>
+                            <p className="text-xs text-gray-400 mt-0.5">تاريخ الفاتورة الأساسية: {inv.date} | عدد البنود المتبقية: {groupItems.length}</p>
+                          </div>
+                          <button
+                            onClick={() => handleResendNotArrivedItems(groupItems)}
+                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded-lg text-xs cursor-pointer transition-all flex items-center gap-1.5"
+                          >
+                            🔄 إعادة إرسال كافة البنود غير الواصلة للمدير
+                          </button>
+                        </div>
+
+                        <div className="space-y-2">
+                          {groupItems.map((item, itemIdx) => {
+                            const qtyToResend = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0"
+                              ? item.remainingQty
+                              : item.company;
+
+                            return (
+                              <div key={item.id || itemIdx} className="p-3 bg-red-50/15 border border-red-100 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs">
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded text-[10px]">
+                                      غير واصل: {qtyToResend}
+                                    </span>
+                                    <span className="font-extrabold text-gray-800 text-sm">{item.fixedName}</span>
+                                    {item.description && item.description !== "-" && (
+                                      <span className="text-gray-500">({item.description})</span>
+                                    )}
+                                  </div>
+                                  {item.note && <p className="text-[10px] text-gray-400 mt-1">📝 ملاحظة: {item.note}</p>}
+                                </div>
+
+                                <button
+                                  onClick={() => handleResendNotArrivedItems([item])}
+                                  className="bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-red-700 font-bold py-1 px-3 rounded-md text-[10px] cursor-pointer transition-all"
+                                >
+                                  إعادة إرسال هذا البند فقط 🔄
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Waiting items (pending review by manager) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <h2 className="text-lg font-bold text-amber-700 border-r-4 border-amber-500 pr-3 mb-4">⏳ بنود بانتظار المراجعة والاعتماد من المدير</h2>
+              <div className="space-y-3">
+                {items.filter(i => i.warehouse === whName && i.status === "waiting").length === 0 ? (
+                  <p className="text-gray-400 text-center py-6 text-xs">لا توجد بنود بانتظار المراجعة حالياً.</p>
+                ) : (
+                  items.filter(i => i.warehouse === whName && i.status === "waiting").map((item, index) => (
+                    <div key={item.id} className="p-3 bg-amber-50/50 border border-amber-200 rounded-xl flex justify-between items-center gap-4 flex-wrap sm:flex-nowrap">
+                      <div>
+                        <strong className="text-sm font-bold text-amber-900">{index+1}. {item.company}</strong>
+                        <span className="text-xs text-gray-700 font-semibold mr-2">{item.fixedName} - {item.description}</span>
+                        {item.note && <p className="text-xs text-gray-500 mt-1">📝 ملاحظة: {item.note}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold">بانتظار الاعتماد</span>
+                        {(isManager || currentUser.warehouse === whName) && (
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => handleEditWaitingItem(item)}
+                              className="bg-amber-500 hover:bg-amber-600 text-amber-950 p-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                              title="تعديل البند"
+                            >
+                              ✏️ تعديل
+                            </button>
+                            <button
+                              onClick={() => handleDeleteWaitingItem(item.id)}
+                              className="bg-red-600 hover:bg-red-700 text-white p-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                              title="حذف البند"
+                            >
+                              🗑️ حذف
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
 
             {/* Historical Archive */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
@@ -1947,49 +2277,9 @@ export default function App() {
                 )}
               </div>
             </div>
-
-            {/* Waiting items (pending review by manager) */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <h2 className="text-lg font-bold text-amber-700 border-r-4 border-amber-500 pr-3 mb-4">⏳ بنود بانتظار المراجعة والاعتماد من المدير</h2>
-              <div className="space-y-3">
-                {items.filter(i => i.warehouse === whName && i.status === "waiting").length === 0 ? (
-                  <p className="text-gray-400 text-center py-6 text-xs">لا توجد بنود بانتظار المراجعة حالياً.</p>
-                ) : (
-                  items.filter(i => i.warehouse === whName && i.status === "waiting").map((item, index) => (
-                    <div key={item.id} className="p-3 bg-amber-50/50 border border-amber-200 rounded-xl flex justify-between items-center gap-4 flex-wrap sm:flex-nowrap">
-                      <div>
-                        <strong className="text-sm font-bold text-amber-900">{index+1}. {item.company}</strong>
-                        <span className="text-xs text-gray-700 font-semibold mr-2">{item.fixedName} - {item.description}</span>
-                        {item.note && <p className="text-xs text-gray-500 mt-1">📝 ملاحظة: {item.note}</p>}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold">بانتظار الاعتماد</span>
-                        {(isManager || currentUser.warehouse === whName) && (
-                          <div className="flex gap-1.5">
-                            <button
-                              onClick={() => handleEditWaitingItem(item)}
-                              className="bg-amber-500 hover:bg-amber-600 text-amber-950 p-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                              title="تعديل البند"
-                            >
-                              ✏️ تعديل
-                            </button>
-                            <button
-                              onClick={() => handleDeleteWaitingItem(item.id)}
-                              className="bg-red-600 hover:bg-red-700 text-white p-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                              title="حذف البند"
-                            >
-                              🗑️ حذف
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
           </div>
         );
+      }
       case "quotations":
         return (
           <Quotations
