@@ -2044,20 +2044,7 @@ export default function App() {
                                             onClick={() => handleFullReceiptDirect(inv.id, item)}
                                             className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-1 px-2.5 rounded-lg cursor-pointer text-[10px]"
                                           >
-                                            ✓ استلام كلي
-                                          </button>
-                                          <button
-                                            onClick={() => setReceiptConfirmModal({
-                                              invoiceId: inv.id,
-                                              itemId: item.id,
-                                              itemName: item.fixedName,
-                                              requiredQty: item.remainingQty || item.company,
-                                              originalQty: item.originalQty || item.company,
-                                              receivedQty: item.receivedQty || ""
-                                            })}
-                                            className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-1 px-2.5 rounded-lg cursor-pointer text-[10px]"
-                                          >
-                                            🔢 استلام بالعدد
+                                            ✓ استلام
                                           </button>
                                         </div>
                                       </div>
@@ -2068,21 +2055,7 @@ export default function App() {
                                           className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-1 px-2.5 rounded-lg shadow-sm cursor-pointer text-[10px]"
                                           title="استلام كامل الكمية"
                                         >
-                                          ✓ استلام كلي
-                                        </button>
-                                        <button
-                                          onClick={() => setReceiptConfirmModal({
-                                            invoiceId: inv.id,
-                                            itemId: item.id,
-                                            itemName: item.fixedName,
-                                            requiredQty: item.remainingQty || item.company,
-                                            originalQty: item.originalQty || item.company,
-                                            receivedQty: item.receivedQty || ""
-                                          })}
-                                          className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-1 px-2.5 rounded-lg shadow-sm cursor-pointer text-[10px]"
-                                          title="استلام جزئي بالعدد"
-                                        >
-                                          🔢 استلام بالعدد
+                                          ✓ استلام
                                         </button>
                                         <button
                                           onClick={() => handleUpdateItemDeliveryStatus(inv.id, item.id, "delayed")}
