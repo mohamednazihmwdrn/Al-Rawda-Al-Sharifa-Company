@@ -100,86 +100,9 @@ export default function Cart({ currentUser, savedItems, items, onSaveCart, onSav
       return;
     }
 
-    // Check duplicate in local cart
-    const isDupInCart = cart.some(
-      item => item.fixedName.trim().toLowerCase() === itemName.trim().toLowerCase()
-    );
-
-    // Check duplicate in active database
-    const currentWarehouseName = currentUser.role === "مدير" ? "مخزن المدير" : (currentUser.warehouse || "المدير");
     const todayStr = new Date().toLocaleDateString("ar-EG");
-    const isDupInDB = items.some(
-      item => item.warehouse === currentWarehouseName &&
-              item.status === "active" &&
-              item.fixedName.trim().toLowerCase() === itemName.trim().toLowerCase() &&
-              item.date === todayStr
-    );
 
-    if (isDupInCart || isDupInDB) {
-      const sourceName = isDupInCart ? "نفس الفاتورة الحالية بالسلة" : "قاعدة البيانات النشطة اليوم";
-      
-      setDuplicateModalConfig({
-        quantity,
-        itemName,
-        source: sourceName,
-        onConfirm: (newNote: string) => {
-          const newItem: LocalCartItem = {
-            id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-            company: quantity.trim(),
-            fixedName: itemName.trim(),
-            description: "-",
-            note: newNote,
-            date: todayStr,
-            time: new Date().toLocaleTimeString("ar-EG"),
-            duplicateNote: true,
-            duplicateFrom: sourceName
-          };
-          setCart(prev => [...prev, newItem]);
-          setItemName("");
-          setQuantity("");
-        }
-      });
-      setDuplicateNoteInput("");
-      setShowDuplicateModal(true);
-      return;
-    }
-
-    // Check duplicate in another warehouse's active/pending items
-    const otherWarehouseItem = items.find(
-      item => item.warehouse !== currentWarehouseName &&
-              (item.status === "waiting" || item.status === "active") &&
-              item.fixedName.trim().toLowerCase() === itemName.trim().toLowerCase()
-    );
-
-    if (otherWarehouseItem) {
-      const sourceName = `مستودع آخر: ${otherWarehouseItem.warehouse}`;
-      setDuplicateModalConfig({
-        quantity,
-        itemName,
-        source: sourceName,
-        onConfirm: (newNote: string) => {
-          const newItem: LocalCartItem = {
-            id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-            company: quantity.trim(),
-            fixedName: itemName.trim(),
-            description: "-",
-            note: newNote,
-            date: todayStr,
-            time: new Date().toLocaleTimeString("ar-EG"),
-            duplicateNote: true,
-            duplicateFrom: otherWarehouseItem.warehouse
-          };
-          setCart(prev => [...prev, newItem]);
-          setItemName("");
-          setQuantity("");
-        }
-      });
-      setDuplicateNoteInput("");
-      setShowDuplicateModal(true);
-      return;
-    }
-
-    // Regular add
+    // Regular add - allow any warehouse to add any item freely
     const newItem: LocalCartItem = {
       id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
       company: quantity.trim(),
