@@ -487,12 +487,19 @@ export default function App() {
     }
   }, [users, currentUser]);
 
-  // 10 PM automatic archiving check
+  // 10 PM automatic archiving check & pending invoice auto-consolidation
   useEffect(() => {
     // Run the automatic check once on mount / update
     handleAutoArchiveDeficits();
 
-    // Check periodically (every 30 seconds) in case a user is active when the clock hits 10:00 PM
+    // Consolidate pending invoices if multiple exist for today
+    const today = getToday();
+    const pendingTodayCount = mergedInvoices.filter(m => m.date === today && m.status === "pending").length;
+    if (pendingTodayCount > 1) {
+      autoMergePendingInvoices();
+    }
+
+    // Check periodically (every 30 seconds)
     const checkInterval = setInterval(() => {
       handleAutoArchiveDeficits();
     }, 30000);
@@ -571,7 +578,7 @@ export default function App() {
         warehouse,
         user: currentUser.displayName || currentUser.username,
         savedAt: getFullDate(),
-        status: (warehouse === "المدير" || warehouse === "مخزن المدير") ? "active" : "waiting",
+        status: "waiting", // All warehouse deficits (including general merchandise & copper) go to waiting
         duplicateFrom: cartItem.duplicateFrom,
         duplicateNote: cartItem.duplicateNote,
         createdAt: Date.now()
@@ -581,45 +588,57 @@ export default function App() {
       savedItemsList.push(newItem);
     }
 
-    // Warehouses send deficits to pending list which automatically triggers/refreshes MergedInvoices for the manager
-    if (warehouse !== "المدير" && warehouse !== "مخزن المدير") {
-      await autoMergePendingInvoices();
-    }
+    // Always trigger auto-merge so items from all warehouses (general merchandise, copper, etc.) are combined into a single invoice
+    await autoMergePendingInvoices();
   };
 
   // Automatic deficit merging for manager (real-time from Firestore)
   const autoMergePendingInvoices = async () => {
     const today = getToday();
 
-    // Query active items that are pending 'waiting' directly from DB to get the most accurate state across all devices
-    const pendingItems = await getPendingItemsFromDb();
-    if (!pendingItems || pendingItems.length === 0) return;
+    // Query active items that are pending 'waiting' directly from DB
+    const pendingItems = (await getPendingItemsFromDb()) || [];
+    // Check existing pending merged invoices for today
+    const existingInvoices = (await getPendingMergedInvoicesFromDb(today)) || [];
 
-    // Check if daily merged invoice already exists for today directly from DB to prevent concurrent overwrites
-    const existingInvoices = await getPendingMergedInvoicesFromDb(today);
-    const existing = existingInvoices && existingInvoices.length > 0 ? existingInvoices[0] : null;
+    if (pendingItems.length === 0 && existingInvoices.length <= 1) return;
 
-    const uniqueWarehouses: string[] = Array.from(new Set(pendingItems.map(i => i.warehouse || "")));
+    if (existingInvoices.length > 0) {
+      // Consolidate into the primary pending invoice
+      const primary = { ...existingInvoices[0] };
+      const itemsMap = new Map<string, Item>();
 
-    if (existing) {
-      // Append new items
-      const mergedList = [...existing.items];
-      pendingItems.forEach(item => {
-        if (!mergedList.some(mi => mi.id === item.id)) {
-          mergedList.push(item);
-        }
+      // Collect items from all existing pending invoices
+      existingInvoices.forEach(inv => {
+        inv.items.forEach(it => {
+          if (it.id) itemsMap.set(it.id, it);
+        });
       });
+
+      // Collect standalone pending items
+      pendingItems.forEach(it => {
+        if (it.id) itemsMap.set(it.id, it);
+      });
+
+      const combinedItems = Array.from(itemsMap.values());
+      const combinedWarehouses = Array.from(new Set(combinedItems.map(i => i.warehouse || "").filter(Boolean)));
 
       await saveMergedInvoice({
-        ...existing,
-        items: mergedList,
-        total: mergedList.length,
-        warehouses: Array.from(new Set([...existing.warehouses, ...uniqueWarehouses])),
+        ...primary,
+        items: combinedItems,
+        total: combinedItems.length,
+        warehouses: combinedWarehouses,
         time: getNow()
       });
-    } else {
+
+      // If multiple pending invoices existed for today, delete the extra ones to keep everything in ONE invoice
+      for (let i = 1; i < existingInvoices.length; i++) {
+        await deleteMergedInvoice(existingInvoices[i].id);
+      }
+    } else if (pendingItems.length > 0) {
       const invoicesCount = await getMergedInvoicesCountFromDb();
       const invoiceNum = (invoicesCount || 0) + 1;
+      const uniqueWarehouses = Array.from(new Set(pendingItems.map(i => i.warehouse || "").filter(Boolean)));
       const newInvoice: MergedInvoice = {
         id: Date.now().toString(),
         invoiceNumber: invoiceNum,

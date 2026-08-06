@@ -718,6 +718,12 @@ export function printMatrix(
       <head>
           <meta charset="UTF-8">
           <title>${title} - مصفوفة ${serialNumber}</title>
+          <style id="matrixPageOrientationStyle">
+              @page { 
+                  size: A4 landscape !important; 
+                  margin: ${matrixPageMargin} !important; 
+              }
+          </style>
           <style>
               * { 
                   font-family: 'Arial', 'Segoe UI', sans-serif !important; 
@@ -738,6 +744,21 @@ export function printMatrix(
                   display: flex;
                   flex-direction: column;
                   height: auto;
+              }
+              .no-print {
+                  background: #1e293b;
+                  color: #ffffff;
+                  padding: 10px 16px;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  position: sticky;
+                  top: 0;
+                  z-index: 9999;
+                  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                  font-family: sans-serif;
+                  margin-bottom: 12px;
+                  border-radius: 8px;
               }
               .header {
                   display: flex;
@@ -925,15 +946,26 @@ export function printMatrix(
                   .header { border-bottom: 3px solid #000000 !important; }
                   .footer { border-top: 3px solid #000000 !important; }
                   thead { display: table-header-group !important; }
-                  @page { 
-                      size: A4 landscape !important; 
-                      margin: ${matrixPageMargin} !important; 
-                  }
                   .warehouse-tag { background: #ffffff !important; border: 1px solid #000000 !important; }
               }
           </style>
       </head>
       <body>
+          <div class="no-print">
+              <div style="font-weight:bold; font-size:14px; display:flex; align-items:center; gap:8px;">
+                  <span>⚙️ إعدادات طباعة المصفوفة</span>
+                  <span style="font-size:12px; color:#cbd5e1; font-weight:normal;">(الاتجاه الحالي: <strong id="orientationBadge" style="color:#f59e0b;">أفقي Landscape</strong>)</span>
+              </div>
+              <div style="display:flex; gap:10px; align-items:center;">
+                  <button id="toggleOrientationBtn" onclick="toggleMatrixOrientation()" style="background:#8b6b4d; color:white; border:none; padding:7px 15px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px; transition:all 0.2s;">
+                      🔄 قلب الورقة إلى رأسي (Portrait)
+                  </button>
+                  <button onclick="window.print()" style="background:#16a34a; color:white; border:none; padding:7px 18px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px; transition:all 0.2s;">
+                      🖨️ طباعة الآن
+                  </button>
+              </div>
+          </div>
+
           <div class="invoice-print">
               <div class="header">
                   <div class="right">
@@ -967,6 +999,22 @@ export function printMatrix(
               </div>
           </div>
           <script>
+              let isLandscape = true;
+              function toggleMatrixOrientation() {
+                  isLandscape = !isLandscape;
+                  const styleEl = document.getElementById('matrixPageOrientationStyle');
+                  const btn = document.getElementById('toggleOrientationBtn');
+                  const badge = document.getElementById('orientationBadge');
+                  if (isLandscape) {
+                      if (styleEl) styleEl.innerHTML = '@page { size: A4 landscape !important; margin: ${matrixPageMargin} !important; }';
+                      if (btn) btn.innerHTML = '🔄 قلب الورقة إلى رأسي (Portrait)';
+                      if (badge) badge.innerText = 'أفقي Landscape';
+                  } else {
+                      if (styleEl) styleEl.innerHTML = '@page { size: A4 portrait !important; margin: ${matrixPageMargin} !important; }';
+                      if (btn) btn.innerHTML = '🔄 قلب الورقة إلى أفقي (Landscape)';
+                      if (badge) badge.innerText = 'رأسي Portrait';
+                  }
+              }
               window.onload = function() { window.print(); }
           </script>
       </body>
