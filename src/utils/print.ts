@@ -912,6 +912,7 @@ export function printMatrix(
               .copyright { font-weight: 700 !important; font-size: 10px !important; color: #000000 !important; }
               
               @media print {
+                  .no-print, button { display: none !important; }
                   body { 
                       padding: 0 !important; 
                       margin: 0 !important; 
