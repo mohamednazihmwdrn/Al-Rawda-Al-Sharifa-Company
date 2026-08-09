@@ -492,16 +492,13 @@ export default function App() {
     // Run the automatic check once on mount / update
     handleAutoArchiveDeficits();
 
-    // Consolidate pending invoices if multiple exist for today
-    const today = getToday();
-    const pendingTodayCount = mergedInvoices.filter(m => m.date === today && m.status === "pending").length;
-    if (pendingTodayCount > 1) {
-      autoMergePendingInvoices();
-    }
+    // Automatically consolidate pending invoices and items for today
+    autoMergePendingInvoices();
 
     // Check periodically (every 30 seconds)
     const checkInterval = setInterval(() => {
       handleAutoArchiveDeficits();
+      autoMergePendingInvoices();
     }, 30000);
 
     return () => clearInterval(checkInterval);
@@ -601,8 +598,6 @@ export default function App() {
     // Check existing pending merged invoices for today
     const existingInvoices = (await getPendingMergedInvoicesFromDb(today)) || [];
 
-    if (pendingItems.length === 0 && existingInvoices.length <= 1) return;
-
     if (existingInvoices.length > 0) {
       // Consolidate into the primary pending invoice
       const primary = { ...existingInvoices[0] };
@@ -623,12 +618,21 @@ export default function App() {
       const combinedItems = Array.from(itemsMap.values());
       const combinedWarehouses = Array.from(new Set(combinedItems.map(i => i.warehouse || "").filter(Boolean)));
 
+      // Avoid redundant write if already consolidated and item counts match
+      if (
+        existingInvoices.length === 1 &&
+        combinedItems.length === (primary.items?.length || 0) &&
+        combinedWarehouses.length === (primary.warehouses?.length || 0)
+      ) {
+        return;
+      }
+
       await saveMergedInvoice({
         ...primary,
         items: combinedItems,
         total: combinedItems.length,
         warehouses: combinedWarehouses,
-        time: getNow()
+        time: primary.time || getNow()
       });
 
       // If multiple pending invoices existed for today, delete the extra ones to keep everything in ONE invoice
