@@ -598,25 +598,51 @@ export default function App() {
     // Check existing pending merged invoices for today
     const existingInvoices = (await getPendingMergedInvoicesFromDb(today)) || [];
 
+    // Collect all item IDs that belong to approved / auto_approved invoices for today
+    const approvedTodayInvoices = mergedInvoices.filter(
+      m => m.date === today && (m.status === "approved" || m.status === "auto_approved")
+    );
+    const approvedItemIds = new Set<string>();
+    approvedTodayInvoices.forEach(inv => {
+      inv.items?.forEach(it => {
+        if (it.id) approvedItemIds.add(it.id);
+      });
+    });
+
+    // Filter items to ensure no items from approved invoices are treated as pending
+    const trulyPendingItems = pendingItems.filter(
+      it => it.status === "waiting" && (!it.id || !approvedItemIds.has(it.id))
+    );
+
     if (existingInvoices.length > 0) {
       // Consolidate into the primary pending invoice
       const primary = { ...existingInvoices[0] };
       const itemsMap = new Map<string, Item>();
 
-      // Collect items from all existing pending invoices
+      // Collect items from all existing pending invoices (excluding already approved items)
       existingInvoices.forEach(inv => {
-        inv.items.forEach(it => {
-          if (it.id) itemsMap.set(it.id, it);
+        inv.items?.forEach(it => {
+          if (it.id && !approvedItemIds.has(it.id)) {
+            itemsMap.set(it.id, it);
+          }
         });
       });
 
-      // Collect standalone pending items
-      pendingItems.forEach(it => {
+      // Collect standalone truly pending items
+      trulyPendingItems.forEach(it => {
         if (it.id) itemsMap.set(it.id, it);
       });
 
       const combinedItems = Array.from(itemsMap.values());
       const combinedWarehouses = Array.from(new Set(combinedItems.map(i => i.warehouse || "").filter(Boolean)));
+
+      // If all items in the pending invoice(s) have been approved, delete the pending invoice(s)
+      if (combinedItems.length === 0) {
+        for (const inv of existingInvoices) {
+          await deleteMergedInvoice(inv.id);
+        }
+        return;
+      }
 
       // Avoid redundant write if already consolidated and item counts match
       if (
@@ -639,18 +665,18 @@ export default function App() {
       for (let i = 1; i < existingInvoices.length; i++) {
         await deleteMergedInvoice(existingInvoices[i].id);
       }
-    } else if (pendingItems.length > 0) {
+    } else if (trulyPendingItems.length > 0) {
       const invoicesCount = await getMergedInvoicesCountFromDb();
       const invoiceNum = (invoicesCount || 0) + 1;
-      const uniqueWarehouses = Array.from(new Set(pendingItems.map(i => i.warehouse || "").filter(Boolean)));
+      const uniqueWarehouses = Array.from(new Set(trulyPendingItems.map(i => i.warehouse || "").filter(Boolean)));
       const newInvoice: MergedInvoice = {
         id: Date.now().toString(),
         invoiceNumber: invoiceNum,
         date: today,
         time: getNow(),
-        items: pendingItems,
+        items: trulyPendingItems,
         warehouses: uniqueWarehouses,
-        total: pendingItems.length,
+        total: trulyPendingItems.length,
         status: "pending",
         unread: true
       };
@@ -744,16 +770,27 @@ export default function App() {
     const invoice = mergedInvoices[index];
     if (!invoice) return;
 
-    const today = getToday();
+    const approvedAtTime = getFullDate();
 
-    // 1. Set status approved
+    // 1. Prepare items with approved status
+    const updatedItems = invoice.items.map(item => ({
+      ...item,
+      status: "approved" as const,
+      approvedAt: approvedAtTime
+    }));
+
+    // 2. Update item statuses in database in parallel
+    await Promise.all(updatedItems.map(item => saveItem(item)));
+
+    // 3. Set status approved on merged invoice with updated items
     await saveMergedInvoice({
       ...invoice,
+      items: updatedItems,
       status: "approved",
-      approvedAt: getFullDate()
+      approvedAt: approvedAtTime
     });
 
-    // 2. Add archive
+    // 4. Add archive
     const archiveId = Date.now().toString();
     await saveArchive({
       id: archiveId,
@@ -762,18 +799,18 @@ export default function App() {
       time: getNow(),
       warehouse: "جميع المخازن",
       user: currentUser?.displayName || currentUser?.username || "غير معروف",
-      items: invoice.items,
-      total: invoice.total,
-      approvedAt: getFullDate(),
+      items: updatedItems,
+      total: updatedItems.length,
+      approvedAt: approvedAtTime,
       merged: true,
       warehouses: invoice.warehouses,
       invoiceNumber: invoice.invoiceNumber,
       unread: true
     });
 
-    // 3. Group by warehouse and add to warehouse specific archives
+    // 5. Group by warehouse and add to warehouse specific archives
     const grouped: { [key: string]: Item[] } = {};
-    invoice.items.forEach(item => {
+    updatedItems.forEach(item => {
       const source = item.warehouse || "غير معروف";
       if (!grouped[source]) grouped[source] = [];
       grouped[source].push(item);
@@ -796,27 +833,18 @@ export default function App() {
       });
     }
 
-    // 4. Group into reports
+    // 6. Group into reports
     const reportId = Date.now().toString() + Math.random().toString(36).slice(2, 5);
     await saveReport({
       id: reportId,
       date: invoice.date,
       time: getNow(),
-      items: invoice.items,
+      items: updatedItems,
       warehouse: "جميع المخازن (معتمد)",
-      total: invoice.items.length,
+      total: updatedItems.length,
       invoiceNumber: invoice.invoiceNumber,
-      approvedAt: getFullDate()
+      approvedAt: approvedAtTime
     });
-
-    // 5. Update items statuses
-    for (const item of invoice.items) {
-      await saveItem({
-        ...item,
-        status: "approved",
-        approvedAt: getFullDate()
-      });
-    }
 
     alert(`✅ تم اعتماد الفاتورة المدمجة #${invoice.invoiceNumber} بنجاح!`);
   };
