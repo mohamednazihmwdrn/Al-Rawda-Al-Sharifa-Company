@@ -38,12 +38,23 @@ export default function ArchiveComponent({
 
   const [showEditModal, setShowEditModal] = useState<string | null>(null);
   const [editingArchive, setEditingArchive] = useState<Archive | null>(null);
-  const [addCompany, setAddCompany] = useState("GLC");
+  const [addWarehouse, setAddWarehouse] = useState("مخزن النحاس");
+  const [customWarehouse, setCustomWarehouse] = useState("");
+  const [addQty, setAddQty] = useState("");
   const [addFixed, setAddFixed] = useState("");
   const [addDesc, setAddDesc] = useState("");
   const [addNote, setAddNote] = useState("");
 
   const isManager = currentUser.role === "مدير";
+
+  // Available warehouses list for dropdown
+  const defaultWarehouses = ["مخزن النحاس", "مخزن النادي", "مخزن المدير"];
+  const dynamicWarehouses = Array.from(new Set([
+    ...defaultWarehouses,
+    ...archives.map(a => a.warehouse).filter(Boolean),
+    ...archives.flatMap(a => a.warehouses || []).filter(Boolean),
+    ...archives.flatMap(a => a.items.map(i => i.warehouse)).filter(Boolean)
+  ])).filter(w => w !== "جميع المخازن" && w !== "غير محدد");
 
   // Filter logic
   const filteredArchives = archives.filter(arch => {
@@ -86,23 +97,35 @@ export default function ArchiveComponent({
   };
 
   const handleAddSubmit = (archiveId: string) => {
-    if (!addFixed.trim() || !addDesc.trim()) {
-      alert("⚠️ الرجاء ملء جميع الحقول المطلوبة!");
+    const selectedWh = addWarehouse === "CUSTOM_WAREHOUSE" ? customWarehouse.trim() : addWarehouse.trim();
+    if (!selectedWh) {
+      alert("⚠️ يرجى اختيار أو إدخال اسم المخزن!");
+      return;
+    }
+    if (!addQty.trim()) {
+      alert("⚠️ يرجى إدخال العدد أو الكمية!");
+      return;
+    }
+    if (!addFixed.trim()) {
+      alert("⚠️ يرجى إدخال اسم الصنف!");
       return;
     }
 
     onAddItemToArchive(archiveId, {
-      company: addCompany,
+      warehouse: selectedWh,
+      company: addQty.trim(),
       fixedName: addFixed.trim(),
-      description: addDesc.trim(),
+      description: addDesc.trim() || "-",
       note: addNote.trim(),
     });
 
+    setAddQty("");
     setAddFixed("");
     setAddDesc("");
     setAddNote("");
+    setCustomWarehouse("");
     setShowEditModal(null);
-    alert("✅ تم إضافة البند إلى الأرشيف بنجاح!");
+    alert("✅ تم إضافة الصنف بنجاح إلى الفاتورة المؤرشفة!");
   };
 
   return (
@@ -249,60 +272,81 @@ export default function ArchiveComponent({
       {/* Edit modal (Add item to confirmed archive) */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-[10000] p-4">
-          <div className="bg-white p-6 rounded-2xl max-w-md w-full shadow-2xl animate-fade-in-up border border-[#d4b48c]/30 space-y-4 text-right">
-            <h3 className="text-[#8b6b4d] font-bold text-lg border-b pb-2">📦 إدراج صنف جديد لأرشيف معتمد</h3>
+          <div className="bg-white p-6 rounded-2xl max-w-md w-full shadow-2xl animate-fade-in-up border border-[#d4b48c]/30 space-y-4 text-right" dir="rtl">
+            <h3 className="text-[#8b6b4d] font-bold text-lg border-b pb-2 flex items-center gap-2">
+              <span>📦 إدراج صنف جديد لأرشيف معتمد</span>
+            </h3>
             
             <div className="space-y-3">
+              {/* Warehouse selector */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-600">الشركة</label>
+                <label className="text-xs font-bold text-gray-700">🏢 اختيار المخزن المعني <span className="text-red-500">*</span></label>
                 <select
-                  value={addCompany}
-                  onChange={(e) => setAddCompany(e.target.value)}
-                  className="p-2 border rounded-lg focus:outline-[#8b6b4d] bg-white text-sm"
+                  value={addWarehouse}
+                  onChange={(e) => setAddWarehouse(e.target.value)}
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] bg-white text-sm font-semibold"
                 >
-                  <option value="GLC">GLC</option>
-                  <option value="JOTUN">JOTUN</option>
-                  <option value="Skip">Skip</option>
-                  <option value="Sipes">Sipes</option>
-                  <option value="CMB">CMB</option>
-                  <option value="Saveto">Saveto</option>
-                  <option value="Sika">Sika</option>
-                  <option value="منتجات متنوعه (اكسسوارات)">منتجات متنوعه (اكسسوارات)</option>
-                  <option value="حدايد ومسامير">حدايد ومسامير</option>
-                  <option value="منتجات متنوعه (عام)">منتجات متنوعه (عام)</option>
+                  {dynamicWarehouses.map(wh => (
+                    <option key={wh} value={wh}>{wh}</option>
+                  ))}
+                  <option value="CUSTOM_WAREHOUSE">🏢 مخزن آخر (إدخال يدوي...)</option>
                 </select>
+                {addWarehouse === "CUSTOM_WAREHOUSE" && (
+                  <input
+                    type="text"
+                    placeholder="اكتب اسم المخزن الجديد..."
+                    value={customWarehouse}
+                    onChange={(e) => setCustomWarehouse(e.target.value)}
+                    className="p-2 border border-amber-300 bg-amber-50/50 rounded-lg text-sm mt-1 focus:outline-[#8b6b4d]"
+                  />
+                )}
               </div>
 
+              {/* Quantity / العدد */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-600">الاسم الثابت</label>
+                <label className="text-xs font-bold text-gray-700">🔢 العدد (الكمية المطلوب إدراجها) <span className="text-red-500">*</span></label>
                 <input
                   type="text"
-                  placeholder="مثال: جالون، كيلو، شيكارة..."
+                  placeholder="مثال: 10 أو 5 كرتونة..."
+                  value={addQty}
+                  onChange={(e) => setAddQty(e.target.value)}
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] text-sm font-semibold"
+                />
+              </div>
+
+              {/* Item Name / اسم الصنف */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-700">📦 اسم الصنف <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="مثال: معجون دايتون GLC / كابل تايب سي..."
                   value={addFixed}
                   onChange={(e) => setAddFixed(e.target.value)}
-                  className="p-2 border rounded-lg focus:outline-[#8b6b4d] text-sm"
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] text-sm font-semibold"
                 />
               </div>
 
+              {/* Description / الوصف والتفاصيل */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-600">الصنف والوصف</label>
+                <label className="text-xs font-bold text-gray-600">📝 الوصف / التفاصيل (اختياري)</label>
                 <input
                   type="text"
-                  placeholder="مثال: معجون دايتون GLC..."
+                  placeholder="تفاصيل إضافية..."
                   value={addDesc}
                   onChange={(e) => setAddDesc(e.target.value)}
-                  className="p-2 border rounded-lg focus:outline-[#8b6b4d] text-sm"
+                  className="p-2 border border-gray-200 rounded-xl focus:outline-[#8b6b4d] text-sm"
                 />
               </div>
 
+              {/* Note / ملاحظة */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-600">ملاحظة</label>
+                <label className="text-xs font-bold text-gray-600">📌 ملاحظات إضافية (اختياري)</label>
                 <input
                   type="text"
-                  placeholder="ملاحظات البند..."
+                  placeholder="ملاحظة للبند..."
                   value={addNote}
                   onChange={(e) => setAddNote(e.target.value)}
-                  className="p-2 border rounded-lg focus:outline-[#8b6b4d] text-sm"
+                  className="p-2 border border-gray-200 rounded-xl focus:outline-[#8b6b4d] text-sm"
                 />
               </div>
             </div>

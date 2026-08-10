@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { User, Item, MergedInvoice } from "../types";
-import { printInvoice } from "../utils/print";
+import { printInvoice, printDailyReceiptReport } from "../utils/print";
 import { compareDatesDescending } from "../utils/date";
 
 interface ReceivedItemsProps {
@@ -81,6 +81,18 @@ export default function ReceivedItems({
     printInvoice(group.items, title, warehouseFilter, currentUser.displayName || currentUser.username);
   };
 
+  const handlePrintDailyReport = () => {
+    const allItems = groups.flatMap(g => g.items);
+    if (allItems.length === 0) {
+      alert("⚠️ لا توجد بنود مستلمة للطباعة اليوم.");
+      return;
+    }
+    const title = warehouseFilter 
+      ? `تقرير الاستلام اليومي - ${warehouseFilter}`
+      : "تقرير الاستلام اليومي - جميع المخازن";
+    printDailyReceiptReport(allItems, title, warehouseFilter, currentUser.displayName || currentUser.username);
+  };
+
   return (
     <div className="space-y-6" dir="rtl">
       {/* Header section */}
@@ -96,8 +108,17 @@ export default function ReceivedItems({
             }
           </p>
         </div>
-        <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 font-extrabold text-xs p-2.5 px-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30">
-          إجمالي فواتير الاستلام: {groups.length}
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={handlePrintDailyReport}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs p-2.5 px-4 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+            title="طباعة تقرير كافة الأصناف المستلمة اليوم"
+          >
+            📄 🖨️ تقرير الاستلام اليومي (PDF)
+          </button>
+          <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 font-extrabold text-xs p-2.5 px-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30">
+            إجمالي فواتير الاستلام: {groups.length}
+          </div>
         </div>
       </div>
 

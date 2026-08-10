@@ -312,9 +312,17 @@ export async function getPendingMergedInvoicesFromDb(today: string): Promise<Mer
 export async function getMergedInvoicesCountFromDb(): Promise<number> {
   try {
     const snapshot = await getDocs(collection(db, "mergedInvoices"));
-    return snapshot.size;
+    let maxNum = snapshot.size;
+    snapshot.forEach((doc) => {
+      const data = doc.data() as MergedInvoice;
+      if (data.invoiceNumber && typeof data.invoiceNumber === "number" && data.invoiceNumber > maxNum) {
+        maxNum = data.invoiceNumber;
+      }
+    });
+    return maxNum;
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, "mergedInvoices");
+    return 0;
   }
 }
 

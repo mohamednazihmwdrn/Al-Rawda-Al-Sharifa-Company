@@ -53,7 +53,7 @@ import {
 
 // Helper constants & utils
 import { getToday, getNow, getFullDate, AYAT, isItemInTodayWindow } from "./data/constants";
-import { printInvoice, printMatrix, getPrintUserName } from "./utils/print";
+import { printInvoice, printMatrix, getPrintUserName, printDailyReceiptReport } from "./utils/print";
 
 // Sub-components
 import Login from "./components/Login";
@@ -667,7 +667,10 @@ export default function App() {
       }
     } else if (trulyPendingItems.length > 0) {
       const invoicesCount = await getMergedInvoicesCountFromDb();
-      const invoiceNum = (invoicesCount || 0) + 1;
+      const maxMerged = Math.max(0, ...mergedInvoices.map(i => i.invoiceNumber || 0));
+      const maxArch = Math.max(0, ...archives.map(a => a.invoiceNumber || 0));
+      const maxRep = Math.max(0, ...reports.map(r => r.invoiceNumber || 0));
+      const invoiceNum = Math.max(invoicesCount || 0, maxMerged, maxArch, maxRep) + 1;
       const uniqueWarehouses = Array.from(new Set(trulyPendingItems.map(i => i.warehouse || "").filter(Boolean)));
       const newInvoice: MergedInvoice = {
         id: Date.now().toString(),
@@ -920,17 +923,39 @@ export default function App() {
   };
 
   const handleUpdateItemDeliveryStatus = async (invoiceId: string, itemId: string, status: "received" | "delayed") => {
-    const itemToUpdate = items.find(i => i.id === itemId);
-    if (itemToUpdate) {
+    let targetItem = items.find(i => i.id === itemId);
+    if (!targetItem) {
+      for (const m of mergedInvoices) {
+        const found = m.items.find(i => i.id === itemId);
+        if (found) {
+          targetItem = found;
+          break;
+        }
+      }
+    }
+
+    if (status === "received") {
+      if (targetItem) {
+        setReceiptConfirmModal({
+          invoiceId,
+          itemId,
+          itemName: targetItem.fixedName,
+          requiredQty: targetItem.remainingQty || targetItem.company
+        });
+        return;
+      }
+    }
+
+    if (targetItem) {
       const updatedItem = {
-        ...itemToUpdate,
+        ...targetItem,
         deliveryStatus: status,
         deliveredAt: status === "received" ? getFullDate() : undefined
       };
       await saveItem(updatedItem);
     }
 
-    const invoiceToUpdate = mergedInvoices.find(m => m.id === invoiceId);
+    const invoiceToUpdate = mergedInvoices.find(m => m.id === invoiceId || m.items.some(i => i.id === itemId));
     if (invoiceToUpdate) {
       const updatedItems = invoiceToUpdate.items.map(it => {
         if (it.id === itemId) {
@@ -945,6 +970,46 @@ export default function App() {
 
       await saveMergedInvoice({
         ...invoiceToUpdate,
+        items: updatedItems,
+        total: updatedItems.length
+      });
+    }
+
+    const archToUpdate = archives.find(a => a.id === invoiceId || a.items.some(i => i.id === itemId));
+    if (archToUpdate) {
+      const updatedItems = archToUpdate.items.map(it => {
+        if (it.id === itemId) {
+          return {
+            ...it,
+            deliveryStatus: status,
+            deliveredAt: status === "received" ? getFullDate() : undefined
+          };
+        }
+        return it;
+      });
+
+      await saveArchive({
+        ...archToUpdate,
+        items: updatedItems,
+        total: updatedItems.length
+      });
+    }
+
+    const repToUpdate = reports.find(r => r.id === invoiceId || r.items.some(i => i.id === itemId));
+    if (repToUpdate) {
+      const updatedItems = repToUpdate.items.map(it => {
+        if (it.id === itemId) {
+          return {
+            ...it,
+            deliveryStatus: status,
+            deliveredAt: status === "received" ? getFullDate() : undefined
+          };
+        }
+        return it;
+      });
+
+      await saveReport({
+        ...repToUpdate,
         items: updatedItems,
         total: updatedItems.length
       });
@@ -974,17 +1039,24 @@ export default function App() {
     receivedNowStr: string,
     remainingNowStr: string
   ) => {
-    const itemToUpdate = items.find(i => i.id === itemId);
+    let itemToUpdate = items.find(i => i.id === itemId);
+    if (!itemToUpdate) {
+      for (const m of mergedInvoices) {
+        const found = m.items.find(i => i.id === itemId);
+        if (found) {
+          itemToUpdate = found;
+          break;
+        }
+      }
+    }
     if (!itemToUpdate) return;
 
     // Determine original quantity
     const originalQty = itemToUpdate.originalQty || itemToUpdate.company;
-    const requiredQty = itemToUpdate.remainingQty || itemToUpdate.company;
     
     // Check if remaining quantity is 0
     let remainingVal = parseFloat(remainingNowStr);
     if (isNaN(remainingVal)) {
-      // If remainingNowStr is not a number, we check if it is "0"
       remainingVal = remainingNowStr === "0" ? 0 : 1;
     }
 
@@ -1003,7 +1075,7 @@ export default function App() {
       ...itemToUpdate,
       originalQty,
       receivedQty: isFullyReceived ? originalQty : cumulativeReceived,
-      remainingQty: remainingNowStr,
+      remainingQty: isFullyReceived ? "0" : remainingNowStr,
       hasPartialReceipt: true,
       deliveryStatus: isFullyReceived ? "received" : "delayed",
       deliveredAt: isFullyReceived ? getFullDate() : undefined
@@ -1011,26 +1083,52 @@ export default function App() {
 
     await saveItem(updatedItem);
 
-    // Also update in mergedInvoices
-    const invoiceToUpdate = mergedInvoices.find(m => m.id === invoiceId);
+    // Update in mergedInvoices
+    const invoiceToUpdate = mergedInvoices.find(m => m.id === invoiceId || m.items.some(i => i.id === itemId));
     if (invoiceToUpdate) {
       const updatedItems = invoiceToUpdate.items.map(it => {
         if (it.id === itemId) {
-          return {
-            ...it,
-            originalQty,
-            receivedQty: isFullyReceived ? originalQty : cumulativeReceived,
-            remainingQty: remainingNowStr,
-            hasPartialReceipt: true,
-            deliveryStatus: isFullyReceived ? "received" : "delayed",
-            deliveredAt: isFullyReceived ? getFullDate() : undefined
-          };
+          return updatedItem;
         }
         return it;
       });
 
       await saveMergedInvoice({
         ...invoiceToUpdate,
+        items: updatedItems,
+        total: updatedItems.length
+      });
+    }
+
+    // Update in archives
+    const archToUpdate = archives.find(a => a.id === invoiceId || a.items.some(i => i.id === itemId));
+    if (archToUpdate) {
+      const updatedItems = archToUpdate.items.map(it => {
+        if (it.id === itemId) {
+          return updatedItem;
+        }
+        return it;
+      });
+
+      await saveArchive({
+        ...archToUpdate,
+        items: updatedItems,
+        total: updatedItems.length
+      });
+    }
+
+    // Update in reports
+    const repToUpdate = reports.find(r => r.id === invoiceId || r.items.some(i => i.id === itemId));
+    if (repToUpdate) {
+      const updatedItems = repToUpdate.items.map(it => {
+        if (it.id === itemId) {
+          return updatedItem;
+        }
+        return it;
+      });
+
+      await saveReport({
+        ...repToUpdate,
         items: updatedItems,
         total: updatedItems.length
       });
@@ -1494,30 +1592,110 @@ export default function App() {
     setDetailsModal(null);
   };
 
-  const handleAddItemToArchive = async (archiveId: string, itemData: any) => {
-    const arch = archives.find(a => a.id === archiveId);
-    if (!arch) return;
+  const handleAddItemToApprovedInvoiceOrArchive = async (
+    targetType: "mergedInvoices" | "archives" | "reports",
+    targetId: string,
+    itemData: { warehouse: string; company: string; fixedName: string; description?: string; note?: string }
+  ) => {
+    const selectedWh = (itemData.warehouse || "").trim();
+    const qty = (itemData.company || "").trim();
+    const fixedName = (itemData.fixedName || "").trim();
+    const desc = (itemData.description || "-").trim();
+    const note = (itemData.note || "").trim();
 
+    if (!selectedWh || !qty || !fixedName) {
+      alert("⚠️ يرجى التأكد من تحديد المخزن، وإدخال العدد واسم الصنف!");
+      return;
+    }
+
+    let invDate = getToday();
+    let invNumber: number | undefined = undefined;
+
+    let targetMerged = mergedInvoices.find(m => m.id === targetId);
+    let targetArch = archives.find(a => a.id === targetId);
+    let targetRep = reports.find(r => r.id === targetId);
+
+    if (targetMerged) {
+      invDate = targetMerged.date;
+      invNumber = targetMerged.invoiceNumber;
+    } else if (targetArch) {
+      invDate = targetArch.date;
+      invNumber = targetArch.invoiceNumber;
+    } else if (targetRep) {
+      invDate = targetRep.date;
+      invNumber = targetRep.invoiceNumber;
+    }
+
+    const newItemId = Date.now().toString() + Math.random().toString(36).slice(2, 6);
     const newItem: Item = {
-      id: Date.now().toString(),
-      company: itemData.company,
-      fixedName: itemData.fixedName,
-      description: itemData.description,
-      note: itemData.note,
-      date: arch.date,
+      id: newItemId,
+      company: qty,
+      fixedName: fixedName,
+      description: desc,
+      note: note,
+      date: invDate,
       time: getNow(),
-      warehouse: arch.warehouse || "جميع المخازن",
+      warehouse: selectedWh,
       user: currentUser?.displayName || currentUser?.username || "غير معروف",
       savedAt: getFullDate(),
-      status: "approved"
+      status: "approved",
+      deliveryStatus: "pending",
+      createdAt: Date.now()
     };
 
-    const updatedItems = [...arch.items, newItem];
-    await saveArchive({
-      ...arch,
-      items: updatedItems,
-      total: updatedItems.length
-    });
+    // 1. Save new item to items collection in Firestore
+    await saveItem(newItem);
+
+    // 2. Update matching MergedInvoice
+    const matchedMerged = targetMerged || mergedInvoices.find(m => m.id === targetId || (invNumber !== undefined && m.invoiceNumber === invNumber));
+    if (matchedMerged) {
+      const updatedItems = [...matchedMerged.items, newItem];
+      const updatedWarehouses = Array.from(new Set([...(matchedMerged.warehouses || []), selectedWh].filter(Boolean)));
+      await saveMergedInvoice({
+        ...matchedMerged,
+        items: updatedItems,
+        warehouses: updatedWarehouses,
+        total: updatedItems.length
+      });
+    }
+
+    // 3. Update matching Archive
+    const matchedArch = targetArch || archives.find(a => a.id === targetId || (invNumber !== undefined && a.invoiceNumber === invNumber) || (matchedMerged && a.invoiceNumber === matchedMerged.invoiceNumber));
+    if (matchedArch) {
+      const updatedItems = [...matchedArch.items, newItem];
+      const updatedWarehouses = Array.from(new Set([...(matchedArch.warehouses || []), selectedWh].filter(Boolean)));
+      await saveArchive({
+        ...matchedArch,
+        items: updatedItems,
+        warehouses: updatedWarehouses,
+        total: updatedItems.length
+      });
+    }
+
+    // 4. Update matching Report
+    const matchedRep = targetRep || reports.find(r => r.id === targetId || (invNumber !== undefined && r.invoiceNumber === invNumber) || (matchedMerged && r.invoiceNumber === matchedMerged.invoiceNumber));
+    if (matchedRep) {
+      const updatedItems = [...matchedRep.items, newItem];
+      await saveReport({
+        ...matchedRep,
+        items: updatedItems,
+        total: updatedItems.length
+      });
+    }
+
+    alert(`✅ تم إضافة الصنف "${fixedName}" للمخزن (${selectedWh}) بنجاح!`);
+  };
+
+  const handleAddItemToArchive = async (archiveId: string, itemData: any) => {
+    await handleAddItemToApprovedInvoiceOrArchive("archives", archiveId, itemData);
+  };
+
+  const handleAddItemToApprovedInvoice = async (invoiceId: string, itemData: any) => {
+    await handleAddItemToApprovedInvoiceOrArchive("mergedInvoices", invoiceId, itemData);
+  };
+
+  const handleAddItemToReport = async (reportId: string, itemData: any) => {
+    await handleAddItemToApprovedInvoiceOrArchive("reports", reportId, itemData);
   };
 
   const handleUpdateArchive = async (updatedArchive: Archive) => {
@@ -1680,6 +1858,7 @@ export default function App() {
             onEditWaitingItem={handleEditWaitingItem}
             onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
             onRolloverUnreceivedItems={handleRolloverUnreceivedItems}
+            onAddItemToApprovedInvoice={handleAddItemToApprovedInvoice}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2009,23 +2188,52 @@ export default function App() {
 
             {/* TAB 2: RECEIVED INVOICES & GOODS RECEIPT */}
             {whActiveTab === "received" && (() => {
+              const handlePrintDailyReceiptReportForWh = () => {
+                const allReceived: Item[] = [];
+                approvedInvs.forEach(inv => {
+                  inv.items.forEach(it => {
+                    if ((it.warehouse || "").trim().includes(whName.trim())) {
+                      if (it.deliveryStatus === "received" || it.hasPartialReceipt || (it.receivedQty && it.receivedQty !== "0")) {
+                        allReceived.push(it);
+                      }
+                    }
+                  });
+                });
+
+                if (allReceived.length === 0) {
+                  alert("⚠️ لا توجد أصناف مستلمة اليوم لهذا المخزن حتى الآن.");
+                  return;
+                }
+
+                printDailyReceiptReport(allReceived, `تقرير الاستلام اليومي - ${whName}`, whName, currentUser.displayName || currentUser.username);
+              };
+
               if (approvedInvs.length === 0) {
                 return (
-                  <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium border shadow-sm">
-                    لا توجد فواتير معتمدة من المدير العام بانتظار الاستلام حالياً.
+                  <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium border shadow-sm space-y-4">
+                    <p>لا توجد فواتير معتمدة من المدير العام بانتظار الاستلام حالياً.</p>
                   </div>
                 );
               }
 
               return (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-100" id="approved-warehouse-items-receipt">
-                  <div className="flex justify-between items-center mb-6 border-b pb-3 border-emerald-50">
+                  <div className="flex justify-between items-center mb-6 border-b pb-3 border-emerald-50 flex-wrap gap-2">
                     <h2 className="text-lg font-bold text-emerald-800 flex items-center gap-2">
                       <span>🚚 استلام البضائع والفواتير المعتمدة</span>
                     </h2>
-                    <span className="text-xs bg-emerald-50 text-emerald-800 border border-emerald-100 px-3 py-1 rounded-full font-bold">
-                      عدد الفواتير: {approvedInvs.length}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={handlePrintDailyReceiptReportForWh}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs p-2 px-3.5 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                        title="طباعة تقرير كافة الأصناف التي تم استلامها اليوم"
+                      >
+                        📄 🖨️ تقرير الاستلام اليومي (PDF)
+                      </button>
+                      <span className="text-xs bg-emerald-50 text-emerald-800 border border-emerald-100 px-3 py-1.5 rounded-xl font-bold">
+                        عدد الفواتير: {approvedInvs.length}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="space-y-6 max-h-[700px] overflow-y-auto pr-1">
@@ -2092,8 +2300,9 @@ export default function App() {
                                         <span className="bg-red-100 text-red-800 px-2.5 py-1 rounded-full font-bold text-[10px]">🔴 لم يصل بعد</span>
                                         <div className="flex gap-1.5">
                                           <button
-                                            onClick={() => handleFullReceiptDirect(inv.id, item)}
+                                            onClick={() => handleUpdateItemDeliveryStatus(inv.id, item.id, "received")}
                                             className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-1 px-2.5 rounded-lg cursor-pointer text-[10px]"
+                                            title="تحديد الكمية وتأكيد الاستلام"
                                           >
                                             ✓ استلام
                                           </button>
@@ -2102,9 +2311,9 @@ export default function App() {
                                     ) : (
                                       <div className="flex gap-1.5">
                                         <button
-                                          onClick={() => handleFullReceiptDirect(inv.id, item)}
+                                          onClick={() => handleUpdateItemDeliveryStatus(inv.id, item.id, "received")}
                                           className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-1 px-2.5 rounded-lg shadow-sm cursor-pointer text-[10px]"
-                                          title="استلام كامل الكمية"
+                                          title="تحديد الكمية وتأكيد الاستلام"
                                         >
                                           ✓ استلام
                                         </button>
@@ -2325,6 +2534,7 @@ export default function App() {
             onDeleteItemFromReport={handleDeleteItemFromReport}
             onEditItemInReport={handleEditItemInReport}
             onUpdateReport={handleUpdateReport}
+            onAddItemToReport={handleAddItemToReport}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2397,6 +2607,7 @@ export default function App() {
             currentUser={currentUser}
             mergedInvoices={mergedInvoices}
             warehouseFilter={null}
+            onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2421,6 +2632,7 @@ export default function App() {
             currentUser={currentUser}
             mergedInvoices={mergedInvoices}
             warehouseFilter={currentUser.warehouse || ""}
+            onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -3060,9 +3272,12 @@ export default function App() {
               <span>🚚 تعديل الكمية وتأكيد الاستلام</span>
             </h3>
 
-            <div className="mb-4 bg-emerald-50/50 dark:bg-emerald-950/10 p-3 rounded-2xl border border-emerald-100/30 text-xs">
-              <div className="text-gray-400 mb-1">اسم الصنف المعني بالاستلام:</div>
-              <strong className="text-sm font-black text-gray-800 dark:text-white">{receiptConfirmModal.itemName}</strong>
+            <div className="mb-4 bg-emerald-50/50 dark:bg-emerald-950/10 p-3 rounded-2xl border border-emerald-100/30 text-xs space-y-1">
+              <div className="text-gray-400">اسم الصنف المعني بالاستلام:</div>
+              <strong className="text-sm font-black text-gray-800 dark:text-white block">{receiptConfirmModal.itemName}</strong>
+              <div className="text-[11px] text-amber-700 dark:text-amber-400 pt-1 font-medium border-t border-emerald-200/40 dark:border-emerald-800/40 mt-1">
+                💡 إذا استلمت الكمية بالكامل اترك العدد كما هو وتأكد بالضغط على (تأكيد الاستلام). أما إن استلمت عدداً أقل، يمكنك تعديل العدد المستلم وستُحفظ الأعداد المتبقية تلقائياً في قسم الأصناف الباقية من الطلبية.
+              </div>
             </div>
 
             <div className="space-y-4">

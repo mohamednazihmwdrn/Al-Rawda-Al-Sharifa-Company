@@ -7,12 +7,14 @@ interface UnreceivedItemsProps {
   currentUser: User;
   mergedInvoices: MergedInvoice[];
   warehouseFilter: string | null; // Null means manager (all), non-null means a specific warehouse
+  onUpdateItemDeliveryStatus?: (invoiceId: string, itemId: string, status: "received" | "delayed") => void;
 }
 
 export default function UnreceivedItems({
   currentUser,
   mergedInvoices,
-  warehouseFilter
+  warehouseFilter,
+  onUpdateItemDeliveryStatus
 }: UnreceivedItemsProps) {
   // Filter and group unreceived items from approved invoices
   // Approved invoices are those with status "approved" or "auto_approved"
@@ -220,19 +222,43 @@ export default function UnreceivedItems({
                                 </td>
                               )}
                               <td className="p-3 text-center">
-                                {isPartial ? (
-                                  <span className="bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-400 px-2.5 py-0.5 rounded-full font-bold text-[10px] border border-red-200 dark:border-red-900/30">
-                                    🔴 مستلم جزئياً (مستلم: {item.receivedQty})
-                                  </span>
-                                ) : item.deliveryStatus === "delayed" ? (
-                                  <span className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 px-2.5 py-0.5 rounded-full font-bold text-[10px] border border-amber-200 dark:border-amber-900/30 animate-pulse">
-                                    ⏳ لم يصل / مؤجل
-                                  </span>
-                                ) : (
-                                  <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2.5 py-0.5 rounded-full font-bold text-[10px]">
-                                    ⏳ بانتظار الاستلام
-                                  </span>
-                                )}
+                                <div className="flex flex-col items-center gap-1.5">
+                                  {isPartial ? (
+                                    <span className="bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-400 px-2.5 py-0.5 rounded-full font-bold text-[10px] border border-red-200 dark:border-red-900/30">
+                                      🔴 مستلم جزئياً (مستلم: {item.receivedQty})
+                                    </span>
+                                  ) : item.deliveryStatus === "delayed" ? (
+                                    <span className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 px-2.5 py-0.5 rounded-full font-bold text-[10px] border border-amber-200 dark:border-amber-900/30 animate-pulse">
+                                      ⏳ لم يصل / مؤجل
+                                    </span>
+                                  ) : (
+                                    <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2.5 py-0.5 rounded-full font-bold text-[10px]">
+                                      ⏳ بانتظار الاستلام
+                                    </span>
+                                  )}
+
+                                  {/* Receipt Controllers */}
+                                  {onUpdateItemDeliveryStatus && (
+                                    <div className="flex items-center gap-1 mt-1">
+                                      <button
+                                        onClick={() => onUpdateItemDeliveryStatus(group.id, item.id, "received")}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold py-1 px-2.5 rounded-lg shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                                        title="تعديل العدد وتأكيد الاستلام"
+                                      >
+                                        ✓ استلام
+                                      </button>
+                                      {item.deliveryStatus !== "delayed" && (
+                                        <button
+                                          onClick={() => onUpdateItemDeliveryStatus(group.id, item.id, "delayed")}
+                                          className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold py-1 px-2 rounded-lg transition-all cursor-pointer flex items-center justify-center"
+                                          title="تحديد كـ لم يصل بعد"
+                                        >
+                                          ✖ لم تصل
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );

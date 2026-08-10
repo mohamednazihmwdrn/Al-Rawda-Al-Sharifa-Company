@@ -1229,3 +1229,270 @@ export function printQuotationReceipt(quotation: Quotation, currentUserDisplay =
     win.focus();
   }
 }
+
+export function printDailyReceiptReport(
+  items: Item[],
+  title = "تقرير الاستلام اليومي",
+  warehouseName: string | null = null,
+  currentUserDisplay = "غير معروف"
+) {
+  if (!items || items.length === 0) {
+    alert("⚠️ لا توجد بنود مستلمة للطباعة في هذا التقرير");
+    return;
+  }
+
+  const d = new Date();
+  const dateStr = d.toLocaleDateString("ar-EG");
+  const timeStr = d.toLocaleTimeString("ar-EG");
+  const printNum = getNextPrintNumber("daily_receipt");
+  const serialNumber = String(printNum).padStart(3, "0");
+
+  let totalItemsCount = items.length;
+  let fullyReceivedCount = 0;
+  let partiallyReceivedCount = 0;
+
+  items.forEach(it => {
+    if (it.hasPartialReceipt) {
+      partiallyReceivedCount++;
+    } else {
+      fullyReceivedCount++;
+    }
+  });
+
+  const headerHtml = getHeaderHtml();
+  const footerHtml = getFooterHtml("تقرير الاستلام اليومي");
+  const userName = getPrintUserName(currentUserDisplay);
+
+  const itemsRowsHtml = items.map((item, index) => {
+    const isPartial = item.hasPartialReceipt;
+    const reqQty = item.originalQty || item.company || "1";
+    const recQty = isPartial ? (item.receivedQty || "0") : (item.company || reqQty);
+    const remQty = isPartial ? (item.remainingQty || "0") : "0";
+    const statusText = isPartial
+      ? `<span style="color: #b45309; font-weight: bold; background-color: #fef3c7; padding: 2px 8px; border-radius: 9999px;">استلام جزئي</span>`
+      : `<span style="color: #15803d; font-weight: bold; background-color: #dcfce7; padding: 2px 8px; border-radius: 9999px;">استلام كامل</span>`;
+
+    const notes = [
+      item.description && item.description !== "-" ? item.description : "",
+      item.note && item.note !== "-" ? `ملاحظة: ${item.note}` : ""
+    ].filter(Boolean).join(" | ");
+
+    return `
+      <tr>
+        <td style="text-align: center; font-weight: bold; color: #6b7280;">${index + 1}</td>
+        <td style="font-weight: 800; color: #111827;">${item.fixedName}</td>
+        <td style="text-align: center; color: #4b5563;">${item.warehouse || warehouseName || "-"}</td>
+        <td style="text-align: center; font-weight: bold; color: #374151;">${reqQty}</td>
+        <td style="text-align: center; font-weight: 900; color: #15803d; background-color: #f0fdf4;">${recQty}</td>
+        <td style="text-align: center; font-weight: bold; color: ${remQty !== "0" ? "#dc2626" : "#9ca3af"};">${remQty}</td>
+        <td style="text-align: center;">${statusText}</td>
+        <td style="font-size: 11px; color: #6b7280;">${notes || "-"}</td>
+      </tr>
+    `;
+  }).join("");
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>${title} - ${dateStr}</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
+        * { box-sizing: border-box; }
+        body {
+          font-family: 'Cairo', sans-serif;
+          margin: 0;
+          padding: 20px;
+          background-color: #f9fafb;
+          color: #1f2937;
+          direction: rtl;
+        }
+        .report-container {
+          max-width: 1000px;
+          margin: 0 auto;
+          background-color: #ffffff;
+          padding: 24px;
+          border-radius: 12px;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .header-bar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 3px solid #10b981;
+          padding-bottom: 16px;
+          margin-bottom: 20px;
+        }
+        .company-info-box { text-align: right; }
+        .company-name { font-size: 20px; font-weight: 900; color: #065f46; }
+        .company-address, .company-phone { font-size: 12px; color: #4b5563; }
+        .report-title-box { text-align: center; }
+        .report-title { font-size: 22px; font-weight: 900; color: #111827; margin: 0; }
+        .report-subtitle { font-size: 13px; color: #6b7280; margin-top: 4px; }
+        .meta-box { text-align: left; font-size: 12px; color: #374151; }
+        .meta-box strong { color: #10b981; }
+
+        .stats-summary {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 20px;
+          background-color: #f0fdf4;
+          border: 1px solid #bbf7d0;
+          border-radius: 10px;
+          padding: 12px 16px;
+          justify-content: space-around;
+        }
+        .stat-item { text-align: center; }
+        .stat-label { font-size: 11px; color: #166534; font-weight: 700; }
+        .stat-value { font-size: 18px; font-weight: 900; color: #065f46; }
+
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 20px;
+          font-size: 12px;
+        }
+        th {
+          background-color: #065f46;
+          color: #ffffff;
+          font-weight: 800;
+          padding: 10px 8px;
+          border: 1px solid #047857;
+          text-align: center;
+        }
+        td {
+          padding: 10px 8px;
+          border: 1px solid #e5e7eb;
+          vertical-align: middle;
+        }
+        tr:nth-child(even) { background-color: #f9fafb; }
+
+        .signatures {
+          display: flex;
+          justify-content: space-between;
+          margin-top: 40px;
+          padding-top: 20px;
+          border-top: 1px dashed #d1d5db;
+          font-size: 12px;
+          font-weight: bold;
+        }
+
+        .footer-note {
+          margin-top: 30px;
+          text-align: center;
+          font-size: 11px;
+          color: #9ca3af;
+          border-top: 1px solid #f3f4f6;
+          padding-top: 12px;
+        }
+
+        .no-print-bar {
+          text-align: center;
+          margin-bottom: 16px;
+        }
+        .btn-print {
+          background-color: #10b981;
+          color: white;
+          border: none;
+          padding: 10px 24px;
+          border-radius: 8px;
+          font-weight: 800;
+          font-size: 14px;
+          cursor: pointer;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        @media print {
+          body { background-color: white; padding: 0; }
+          .report-container { box-shadow: none; padding: 0; }
+          .no-print-bar { display: none !important; }
+          @page { size: A4 portrait; margin: 15mm; }
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="no-print-bar">
+        <button class="btn-print" onclick="window.print()">🖨️ طباعة التقرير أو الحفظ كـ PDF</button>
+      </div>
+
+      <div class="report-container">
+        <div class="header-bar">
+          <div class="company-info-box">
+            ${headerHtml}
+          </div>
+          <div class="report-title-box">
+            <h1 class="report-title">📦 ${title}</h1>
+            <div class="report-subtitle">المستودع: ${warehouseName || "جميع المستودعات"}</div>
+          </div>
+          <div class="meta-box">
+            <div>رقم التقرير: <strong>#REC-${serialNumber}</strong></div>
+            <div>التاريخ: <strong>${dateStr}</strong></div>
+            <div>الوقت: <strong>${timeStr}</strong></div>
+            <div>المسؤول: <strong>${userName}</strong></div>
+          </div>
+        </div>
+
+        <div class="stats-summary">
+          <div class="stat-item">
+            <div class="stat-label">إجمالي الأصناف المستلمة</div>
+            <div class="stat-value">${totalItemsCount} صنف</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">استلام كامل</div>
+            <div class="stat-value" style="color: #15803d;">${fullyReceivedCount} صنف</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">استلام جزئي (متبقيات)</div>
+            <div class="stat-value" style="color: #b45309;">${partiallyReceivedCount} صنف</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 4%;">#</th>
+              <th style="width: 25%;">اسم الصنف</th>
+              <th style="width: 14%;">المستودع</th>
+              <th style="width: 10%;">المطلوب</th>
+              <th style="width: 11%;">المستلم</th>
+              <th style="width: 10%;">المتبقي</th>
+              <th style="width: 13%;">حالة الاستلام</th>
+              <th style="width: 13%;">ملاحظات</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsRowsHtml}
+          </tbody>
+        </table>
+
+        <div class="signatures">
+          <div>توقيع مسؤول المستودع: ........................</div>
+          <div>توقيع مدير الفرع: ........................</div>
+          <div>الختم المعتمد: ........................</div>
+        </div>
+
+        <div class="footer-note">
+          ${footerHtml}
+          <div>حقوق الملكية: Mohamed Nazih | 📱 01029190615</div>
+        </div>
+      </div>
+
+      <script>
+        window.onload = function() {
+          setTimeout(function() { window.print(); }, 500);
+        };
+      <\/script>
+    </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank", "width=1050,height=800");
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+  }
+}

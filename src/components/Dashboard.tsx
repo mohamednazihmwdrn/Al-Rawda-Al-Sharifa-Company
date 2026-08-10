@@ -24,6 +24,7 @@ interface DashboardProps {
   onEditWaitingItem?: (item: any) => void;
   onUpdateItemDeliveryStatus?: (invoiceId: string, itemId: string, status: "received" | "delayed") => void;
   onRolloverUnreceivedItems?: () => void;
+  onAddItemToApprovedInvoice?: (invoiceId: string, itemData: any) => void;
 }
 
 export default function Dashboard({
@@ -45,9 +46,57 @@ export default function Dashboard({
   onDeleteWaitingItem,
   onEditWaitingItem,
   onUpdateItemDeliveryStatus,
-  onRolloverUnreceivedItems
+  onRolloverUnreceivedItems,
+  onAddItemToApprovedInvoice
 }: DashboardProps) {
   const [randomAyat, setRandomAyat] = useState<{ text: string; reference: string }>({ text: "", reference: "" });
+  const [addItemModalInvoice, setAddItemModalInvoice] = useState<MergedInvoice | null>(null);
+  const [modalWarehouse, setModalWarehouse] = useState("مخزن النحاس");
+  const [modalCustomWarehouse, setModalCustomWarehouse] = useState("");
+  const [modalQty, setModalQty] = useState("");
+  const [modalFixed, setModalFixed] = useState("");
+  const [modalDesc, setModalDesc] = useState("");
+  const [modalNote, setModalNote] = useState("");
+
+  const defaultWarehouses = ["مخزن النحاس", "مخزن النادي", "مخزن المدير"];
+  const availableWarehouses = Array.from(new Set([
+    ...defaultWarehouses,
+    ...mergedInvoices.flatMap(m => m.warehouses || []).filter(Boolean),
+    ...mergedInvoices.flatMap(m => m.items.map(i => i.warehouse)).filter(Boolean),
+    ...Object.values(users).map(u => u.warehouse).filter(Boolean) as string[]
+  ])).filter(w => w !== "جميع المخازن" && w !== "غير محدد");
+
+  const handleModalAddSubmit = () => {
+    if (!addItemModalInvoice) return;
+    const selectedWh = modalWarehouse === "CUSTOM_WAREHOUSE" ? modalCustomWarehouse.trim() : modalWarehouse.trim();
+    if (!selectedWh) {
+      alert("⚠️ يرجى اختيار أو إدخال اسم المخزن!");
+      return;
+    }
+    if (!modalQty.trim()) {
+      alert("⚠️ يرجى إدخال العدد أو الكمية!");
+      return;
+    }
+    if (!modalFixed.trim()) {
+      alert("⚠️ يرجى إدخال اسم الصنف!");
+      return;
+    }
+
+    onAddItemToApprovedInvoice?.(addItemModalInvoice.id, {
+      warehouse: selectedWh,
+      company: modalQty.trim(),
+      fixedName: modalFixed.trim(),
+      description: modalDesc.trim() || "-",
+      note: modalNote.trim(),
+    });
+
+    setAddItemModalInvoice(null);
+    setModalQty("");
+    setModalFixed("");
+    setModalDesc("");
+    setModalNote("");
+    setModalCustomWarehouse("");
+  };
 
   useEffect(() => {
     const changeVerse = () => {
@@ -451,13 +500,23 @@ export default function Dashboard({
                   <div className="space-y-2 max-h-[160px] overflow-y-auto bg-white p-2.5 rounded-xl border border-gray-100">
                     {inv.items.map((item, iIndex) => {
                       const isManager = currentUser.role === "مدير";
-                      const canUpdateDelivery = !isManager && (currentUser.warehouse && (item.warehouse || "").trim().includes(currentUser.warehouse.trim()));
+                      const canUpdateDelivery = isManager || (!!currentUser.warehouse && (item.warehouse || "").trim().includes(currentUser.warehouse.trim()));
+                      const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
+
                       return (
                         <div key={item.id || iIndex} className="flex flex-col text-xs border-b border-gray-50 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
                           <div className="flex justify-between items-center gap-2">
                             <span className="text-gray-700 flex items-center gap-2 font-bold text-sm">
                               <span className="text-gray-400 font-normal">{iIndex+1}.</span>
-                              <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">العدد: {item.company}</span>
+                              {isPartial ? (
+                                <span className="bg-amber-100 text-amber-900 font-black px-2.5 py-0.5 rounded-lg text-xs border border-amber-300">
+                                  مستلم: {item.receivedQty || "0"} | متبقي: {item.remainingQty} (من أصل {item.originalQty || item.company})
+                                </span>
+                              ) : (
+                                <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">
+                                  العدد: {item.company}
+                                </span>
+                              )}
                               <span className="text-gray-800 font-extrabold">{item.fixedName}</span>
                             </span>
                             <div className="flex items-center gap-2 shrink-0">
@@ -547,6 +606,12 @@ export default function Dashboard({
                   </div>
 
                   <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      onClick={() => setAddItemModalInvoice(inv)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-sm flex items-center gap-1"
+                    >
+                      ➕ إضافة صنف
+                    </button>
                     <button
                       onClick={() => onPrintMergedNormal(mergedInvoices.indexOf(inv))}
                       className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
@@ -721,12 +786,22 @@ export default function Dashboard({
                   pendingEntries.map((entry, index) => {
                     const isDelayed = entry.item.deliveryStatus === "delayed";
                     const isRolledOverItem = entry.item.isRollover;
-                    const canUpdate = !isManager && (currentUser.warehouse && (entry.item.warehouse || "").trim().includes(currentUser.warehouse.trim()));
+                    const canUpdate = isManager || (!!currentUser.warehouse && (entry.item.warehouse || "").trim().includes(currentUser.warehouse.trim()));
+                    const isPartial = entry.item.hasPartialReceipt && entry.item.remainingQty && entry.item.remainingQty !== "0";
+
                     return (
                       <div key={entry.item.id || index} className={`p-3 border rounded-xl flex justify-between items-center gap-4 transition-all ${isDelayed ? "bg-red-50/10 border-red-200" : "bg-gray-50/30 border-gray-100 hover:bg-gray-50/60"}`}>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`font-black px-2 py-0.5 rounded-lg text-xs ${isDelayed ? "bg-red-100 text-red-900" : "bg-gray-200 text-gray-800"}`}>العدد: {entry.item.company}</span>
+                            {isPartial ? (
+                              <span className="font-black px-2 py-0.5 rounded-lg text-xs bg-amber-100 text-amber-900 border border-amber-300">
+                                المتبقي: {entry.item.remainingQty} (مستلم سابقاً: {entry.item.receivedQty || "0"} من أصل {entry.item.originalQty || entry.item.company})
+                              </span>
+                            ) : (
+                              <span className={`font-black px-2 py-0.5 rounded-lg text-xs ${isDelayed ? "bg-red-100 text-red-900" : "bg-gray-200 text-gray-800"}`}>
+                                العدد: {entry.item.company}
+                              </span>
+                            )}
                             <strong className="text-sm font-bold text-gray-800">{entry.item.fixedName}</strong>
                             {isDelayed && <span className="bg-red-100 text-red-800 text-[9px] px-1.5 py-0.2 rounded-full font-bold animate-pulse">لم تصل بعد ⚠️</span>}
                             {isRolledOverItem && (
@@ -842,6 +917,105 @@ export default function Dashboard({
           </div>
         )}
       </div>
+      {/* Add Item Modal for Approved/Merged Invoices */}
+      {addItemModalInvoice && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-[10000] p-4">
+          <div className="bg-white p-6 rounded-2xl max-w-md w-full shadow-2xl animate-fade-in-up border border-[#d4b48c]/30 space-y-4 text-right" dir="rtl">
+            <h3 className="text-[#8b6b4d] font-bold text-lg border-b pb-2 flex items-center gap-2">
+              <span>➕ إضافة صنف إلى الفاتورة المدمجة #{addItemModalInvoice.invoiceNumber}</span>
+            </h3>
+
+            <div className="space-y-3">
+              {/* Warehouse selector */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-700">🏢 اختيار المخزن المعني <span className="text-red-500">*</span></label>
+                <select
+                  value={modalWarehouse}
+                  onChange={(e) => setModalWarehouse(e.target.value)}
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] bg-white text-sm font-semibold"
+                >
+                  {availableWarehouses.map(wh => (
+                    <option key={wh} value={wh}>{wh}</option>
+                  ))}
+                  <option value="CUSTOM_WAREHOUSE">🏢 مخزن آخر (إدخال يدوي...)</option>
+                </select>
+                {modalWarehouse === "CUSTOM_WAREHOUSE" && (
+                  <input
+                    type="text"
+                    placeholder="اكتب اسم المخزن الجديد..."
+                    value={modalCustomWarehouse}
+                    onChange={(e) => setModalCustomWarehouse(e.target.value)}
+                    className="p-2 border border-amber-300 bg-amber-50/50 rounded-lg text-sm mt-1 focus:outline-[#8b6b4d]"
+                  />
+                )}
+              </div>
+
+              {/* Quantity / العدد */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-700">🔢 العدد (الكمية المطلوب إدراجها) <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="مثال: 10 أو 5 كرتونة..."
+                  value={modalQty}
+                  onChange={(e) => setModalQty(e.target.value)}
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] text-sm font-semibold"
+                />
+              </div>
+
+              {/* Item Name / اسم الصنف */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-700">📦 اسم الصنف <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="مثال: معجون دايتون GLC / كابل تايب سي..."
+                  value={modalFixed}
+                  onChange={(e) => setModalFixed(e.target.value)}
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] text-sm font-semibold"
+                />
+              </div>
+
+              {/* Description / الوصف والتفاصيل */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-600">📝 الوصف / التفاصيل (اختياري)</label>
+                <input
+                  type="text"
+                  placeholder="تفاصيل إضافية..."
+                  value={modalDesc}
+                  onChange={(e) => setModalDesc(e.target.value)}
+                  className="p-2 border border-gray-200 rounded-xl focus:outline-[#8b6b4d] text-sm"
+                />
+              </div>
+
+              {/* Note / ملاحظة */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-600">📌 ملاحظات إضافية (اختياري)</label>
+                <input
+                  type="text"
+                  placeholder="ملاحظة للبند..."
+                  value={modalNote}
+                  onChange={(e) => setModalNote(e.target.value)}
+                  className="p-2 border border-gray-200 rounded-xl focus:outline-[#8b6b4d] text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-3 border-t">
+              <button
+                onClick={handleModalAddSubmit}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm cursor-pointer shadow-sm transition-all"
+              >
+                ➕ إضافة الصنف للفاتورة
+              </button>
+              <button
+                onClick={() => setAddItemModalInvoice(null)}
+                className="flex-1 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-xl text-sm cursor-pointer transition-all"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

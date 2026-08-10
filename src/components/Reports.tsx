@@ -17,6 +17,7 @@ interface ReportsProps {
   onDeleteItemFromReport?: (reportId: string, itemIndex: number) => void;
   onEditItemInReport?: (reportId: string, itemIndex: number, updatedFields: any) => void;
   onUpdateReport?: (updatedReport: Report) => void;
+  onAddItemToReport?: (reportId: string, itemData: any) => void;
 }
 
 export default function Reports({
@@ -26,10 +27,56 @@ export default function Reports({
   onViewDetails,
   onDeleteItemFromReport,
   onEditItemInReport,
-  onUpdateReport
+  onUpdateReport,
+  onAddItemToReport
 }: ReportsProps) {
   const isManager = currentUser.role === "مدير";
   const [editingReport, setEditingReport] = useState<Report | null>(null);
+  const [addItemReportModal, setAddItemReportModal] = useState<Report | null>(null);
+  const [modalWarehouse, setModalWarehouse] = useState("مخزن النحاس");
+  const [modalCustomWarehouse, setModalCustomWarehouse] = useState("");
+  const [modalQty, setModalQty] = useState("");
+  const [modalFixed, setModalFixed] = useState("");
+  const [modalDesc, setModalDesc] = useState("");
+  const [modalNote, setModalNote] = useState("");
+
+  const defaultWarehouses = ["مخزن النحاس", "مخزن النادي", "مخزن المدير"];
+  const availableWarehouses = Array.from(new Set([
+    ...defaultWarehouses,
+    ...reports.flatMap(r => r.items.map(i => i.warehouse)).filter(Boolean)
+  ])).filter(w => w !== "جميع المخازن" && w !== "غير محدد");
+
+  const handleModalAddSubmit = () => {
+    if (!addItemReportModal) return;
+    const selectedWh = modalWarehouse === "CUSTOM_WAREHOUSE" ? modalCustomWarehouse.trim() : modalWarehouse.trim();
+    if (!selectedWh) {
+      alert("⚠️ يرجى اختيار أو إدخال اسم المخزن!");
+      return;
+    }
+    if (!modalQty.trim()) {
+      alert("⚠️ يرجى إدخال العدد أو الكمية!");
+      return;
+    }
+    if (!modalFixed.trim()) {
+      alert("⚠️ يرجى إدخال اسم الصنف!");
+      return;
+    }
+
+    onAddItemToReport?.(addItemReportModal.id, {
+      warehouse: selectedWh,
+      company: modalQty.trim(),
+      fixedName: modalFixed.trim(),
+      description: modalDesc.trim() || "-",
+      note: modalNote.trim(),
+    });
+
+    setAddItemReportModal(null);
+    setModalQty("");
+    setModalFixed("");
+    setModalDesc("");
+    setModalNote("");
+    setModalCustomWarehouse("");
+  };
 
   const handleExportAll = () => {
     const allItems: any[] = [];
@@ -111,10 +158,16 @@ export default function Reports({
                 >
                   📥 تصدير
                 </button>
+                <button
+                  onClick={() => setAddItemReportModal(report)}
+                  className="bg-amber-500 hover:bg-amber-600 text-amber-950 text-xs font-bold p-2 px-3 rounded-lg cursor-pointer transition-all"
+                >
+                  ✏️ إضافة صنف
+                </button>
                 {isManager && (
                   <button
                     onClick={() => setEditingReport(report)}
-                    className="bg-amber-500 hover:bg-amber-600 text-amber-950 text-xs font-bold p-2 px-3 rounded-lg cursor-pointer transition-all"
+                    className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-bold p-2 px-3 rounded-lg cursor-pointer transition-all"
                   >
                     ✏️ تعديل التقرير
                   </button>
@@ -189,6 +242,105 @@ export default function Reports({
               <button
                 onClick={() => setEditingReport(null)}
                 className="flex-1 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-xl text-sm cursor-pointer"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Add Item Modal for Report */}
+      {addItemReportModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-[10000] p-4">
+          <div className="bg-white p-6 rounded-2xl max-w-md w-full shadow-2xl animate-fade-in-up border border-[#d4b48c]/30 space-y-4 text-right" dir="rtl">
+            <h3 className="text-[#8b6b4d] font-bold text-lg border-b pb-2 flex items-center gap-2">
+              <span>➕ إضافة صنف إلى تقرير يوم {addItemReportModal.date}</span>
+            </h3>
+
+            <div className="space-y-3">
+              {/* Warehouse selector */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-700">🏢 اختيار المخزن المعني <span className="text-red-500">*</span></label>
+                <select
+                  value={modalWarehouse}
+                  onChange={(e) => setModalWarehouse(e.target.value)}
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] bg-white text-sm font-semibold"
+                >
+                  {availableWarehouses.map(wh => (
+                    <option key={wh} value={wh}>{wh}</option>
+                  ))}
+                  <option value="CUSTOM_WAREHOUSE">🏢 مخزن آخر (إدخال يدوي...)</option>
+                </select>
+                {modalWarehouse === "CUSTOM_WAREHOUSE" && (
+                  <input
+                    type="text"
+                    placeholder="اكتب اسم المخزن الجديد..."
+                    value={modalCustomWarehouse}
+                    onChange={(e) => setModalCustomWarehouse(e.target.value)}
+                    className="p-2 border border-amber-300 bg-amber-50/50 rounded-lg text-sm mt-1 focus:outline-[#8b6b4d]"
+                  />
+                )}
+              </div>
+
+              {/* Quantity / العدد */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-700">🔢 العدد (الكمية المطلوب إدراجها) <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="مثال: 10 أو 5 كرتونة..."
+                  value={modalQty}
+                  onChange={(e) => setModalQty(e.target.value)}
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] text-sm font-semibold"
+                />
+              </div>
+
+              {/* Item Name / اسم الصنف */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-700">📦 اسم الصنف <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="مثال: معجون دايتون GLC / كابل تايب سي..."
+                  value={modalFixed}
+                  onChange={(e) => setModalFixed(e.target.value)}
+                  className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] text-sm font-semibold"
+                />
+              </div>
+
+              {/* Description / الوصف والتفاصيل */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-600">📝 الوصف / التفاصيل (اختياري)</label>
+                <input
+                  type="text"
+                  placeholder="تفاصيل إضافية..."
+                  value={modalDesc}
+                  onChange={(e) => setModalDesc(e.target.value)}
+                  className="p-2 border border-gray-200 rounded-xl focus:outline-[#8b6b4d] text-sm"
+                />
+              </div>
+
+              {/* Note / ملاحظة */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-gray-600">📌 ملاحظات إضافية (اختياري)</label>
+                <input
+                  type="text"
+                  placeholder="ملاحظة للبند..."
+                  value={modalNote}
+                  onChange={(e) => setModalNote(e.target.value)}
+                  className="p-2 border border-gray-200 rounded-xl focus:outline-[#8b6b4d] text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-3 border-t">
+              <button
+                onClick={handleModalAddSubmit}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm cursor-pointer shadow-sm transition-all"
+              >
+                ➕ إضافة الصنف للتقرير
+              </button>
+              <button
+                onClick={() => setAddItemReportModal(null)}
+                className="flex-1 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-xl text-sm cursor-pointer transition-all"
               >
                 إلغاء
               </button>
