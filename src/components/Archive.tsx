@@ -175,11 +175,11 @@ export default function ArchiveComponent({
         {filteredArchives.length === 0 ? (
           <p className="text-gray-400 text-center py-10">لا توجد سجلات مطابقة للبحث حالياً.</p>
         ) : (
-          filteredArchives.map((arch) => {
+          filteredArchives.map((arch, idx) => {
             const isUnread = arch.unread;
             const mergedTag = arch.merged ? `📋 #${arch.invoiceNumber || ""}` : "";
             return (
-              <div key={arch.id} className={`p-4 rounded-2xl border border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all ${
+              <div key={`${arch.id}-${idx}`} className={`p-4 rounded-2xl border border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all ${
                 isUnread ? "bg-amber-50/15 border-r-4 border-r-amber-500" : "bg-[#f5f2ed]/30 border-r-4 border-r-[#8b6b4d]"
               }`}>
                 <div>

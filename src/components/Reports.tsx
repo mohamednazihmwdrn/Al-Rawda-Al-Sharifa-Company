@@ -118,7 +118,7 @@ export default function Reports({
           <p className="text-gray-400 text-center py-10">لا توجد تقارير مؤرشفة حالياً بالمنظومة.</p>
         ) : (
           [...reports].sort(compareDatesDescending).map((report, idx) => (
-            <div key={report.id} className="bg-[#f5f2ed]/45 p-4 rounded-2xl border border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div key={`${report.id}-${idx}`} className="bg-[#f5f2ed]/45 p-4 rounded-2xl border border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <strong className="text-gray-800 text-sm">📄 تقرير النواقص اليومي - {report.date}</strong>
                 <div className="text-xs text-gray-500 mt-1 flex gap-3">

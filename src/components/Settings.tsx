@@ -892,10 +892,10 @@ export default function Settings({
                       <div className="mt-2.5 pt-2 border-t border-gray-100">
                         <span className="text-[10px] font-bold text-gray-400 block mb-1">صلاحيات هذا الحساب:</span>
                         <div className="flex flex-wrap gap-1">
-                          {userPermissions.map(pId => {
+                          {userPermissions.map((pId, idx) => {
                             const found = ALL_SYSTEM_PERMISSIONS.find(sysP => sysP.id === pId);
                             return (
-                              <span key={pId} className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
+                              <span key={`${pId}-${idx}`} className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
                                 {found ? found.name.split(" ")[1] || found.name : pId}
                               </span>
                             );
@@ -985,7 +985,7 @@ export default function Settings({
                 .map((item, index) => {
                   const isEditing = editingSavedItemId === item.id;
                   return (
-                    <tr key={item.id} className="hover:bg-gray-50/50">
+                    <tr key={`${item.id || index}-${index}`} className="hover:bg-gray-50/50">
                       <td className="p-3 text-center text-gray-400">{index + 1}</td>
                       <td className="p-3">
                         {isEditing ? (

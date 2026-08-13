@@ -338,8 +338,8 @@ export default function Dashboard({
               {activeItems.length === 0 ? (
                 <p className="text-gray-400 text-sm text-center py-6">لا توجد نواقص نشطة حالياً</p>
               ) : (
-                activeItems.slice(-5).map((item) => (
-                  <div key={item.id} className="bg-gray-50 p-3 rounded-xl border-l-2 border-[#8b6b4d] text-sm">
+                activeItems.slice(-5).map((item, idx) => (
+                  <div key={`${item.id}-${idx}`} className="bg-gray-50 p-3 rounded-xl border-l-2 border-[#8b6b4d] text-sm">
                     <div className="flex justify-between items-center font-bold text-gray-800">
                       <span className="flex items-center gap-2">
                         <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2 py-0.5 rounded-md text-xs">العدد: {item.company}</span>
@@ -379,8 +379,8 @@ export default function Dashboard({
                   </p>
                 );
               }
-              return [...pendingFiltered].sort(compareDatesDescending).map((inv) => (
-                <div key={inv.id} className="bg-emerald-50/50 border-2 border-emerald-100 p-4 rounded-2xl space-y-3">
+              return [...pendingFiltered].sort(compareDatesDescending).map((inv, invIdx) => (
+                <div key={`${inv.id}-${invIdx}`} className="bg-emerald-50/50 border-2 border-emerald-100 p-4 rounded-2xl space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-[#1e2b3c]">📋 فاتورة مدمجة #{inv.invoiceNumber} - {inv.date}</span>
                     <span className="bg-emerald-600 text-white text-xs px-2 py-0.5 rounded-full font-bold">{inv.total} بند</span>
@@ -390,7 +390,7 @@ export default function Dashboard({
                   {/* Nested item list preview */}
                   <div className="space-y-2 max-h-[160px] overflow-y-auto bg-white p-2.5 rounded-xl border border-gray-100">
                     {inv.items.map((item, iIndex) => (
-                      <div key={item.id || iIndex} className="flex flex-col text-xs border-b border-gray-50 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
+                      <div key={`${inv.id}-${item.id || iIndex}-${iIndex}`} className="flex flex-col text-xs border-b border-gray-50 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
                         <div className="flex justify-between items-center gap-2">
                           <span className="text-gray-700 flex items-center gap-2 font-bold text-sm">
                             <span className="text-gray-400 font-normal">{iIndex+1}.</span>
@@ -488,8 +488,8 @@ export default function Dashboard({
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
             <h3 className="text-lg font-bold text-emerald-800 border-r-4 border-emerald-600 pr-3 mb-4">✅ الفواتير المدمجة المعتمدة (المنجزة)</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto">
-              {[...approvedFiltered].sort(compareDatesDescending).map((inv) => (
-                <div key={inv.id} className="bg-emerald-50/10 border border-emerald-100 p-4 rounded-2xl space-y-3">
+              {[...approvedFiltered].sort(compareDatesDescending).map((inv, invIdx) => (
+                <div key={`${inv.id}-${invIdx}`} className="bg-emerald-50/10 border border-emerald-100 p-4 rounded-2xl space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-[#1e2b3c]">📋 فاتورة مدمجة #{inv.invoiceNumber} - {inv.date}</span>
                     <span className="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{inv.total} بند | معتمدة</span>
@@ -504,7 +504,7 @@ export default function Dashboard({
                       const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
 
                       return (
-                        <div key={item.id || iIndex} className="flex flex-col text-xs border-b border-gray-50 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
+                        <div key={`${inv.id}-${item.id || iIndex}-${iIndex}`} className="flex flex-col text-xs border-b border-gray-50 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
                           <div className="flex justify-between items-center gap-2">
                             <span className="text-gray-700 flex items-center gap-2 font-bold text-sm">
                               <span className="text-gray-400 font-normal">{iIndex+1}.</span>
@@ -705,7 +705,7 @@ export default function Dashboard({
                   <p className="text-gray-400 text-center py-10 text-sm font-medium">لا توجد بنود مستلمة حالياً.</p>
                 ) : (
                   receivedEntries.map((entry, index) => (
-                    <div key={entry.item.id || index} className="p-3 bg-emerald-50/20 border border-emerald-100 rounded-xl flex justify-between items-center gap-4 hover:bg-emerald-50/40 transition-all">
+                    <div key={`${entry.invoiceId}-${entry.item.id || index}-${index}`} className="p-3 bg-emerald-50/20 border border-emerald-100 rounded-xl flex justify-between items-center gap-4 hover:bg-emerald-50/40 transition-all">
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="bg-emerald-600 text-white font-black px-2 py-0.5 rounded-lg text-xs">العدد: {entry.item.company}</span>
@@ -790,7 +790,7 @@ export default function Dashboard({
                     const isPartial = entry.item.hasPartialReceipt && entry.item.remainingQty && entry.item.remainingQty !== "0";
 
                     return (
-                      <div key={entry.item.id || index} className={`p-3 border rounded-xl flex justify-between items-center gap-4 transition-all ${isDelayed ? "bg-red-50/10 border-red-200" : "bg-gray-50/30 border-gray-100 hover:bg-gray-50/60"}`}>
+                      <div key={`${entry.invoiceId}-${entry.item.id || index}-${index}`} className={`p-3 border rounded-xl flex justify-between items-center gap-4 transition-all ${isDelayed ? "bg-red-50/10 border-red-200" : "bg-gray-50/30 border-gray-100 hover:bg-gray-50/60"}`}>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             {isPartial ? (
@@ -859,8 +859,8 @@ export default function Dashboard({
             ) : deletedItems.length === 0 ? (
               <p className="text-gray-400 text-sm text-center py-6">سلة المحذوفات فارغة</p>
             ) : (
-              deletedItems.map((item) => (
-                <div key={item.id} className="bg-red-50/40 border border-red-100 p-3 rounded-2xl flex justify-between items-center gap-4">
+              deletedItems.map((item, index) => (
+                <div key={`${item.id}-${index}`} className="bg-red-50/40 border border-red-100 p-3 rounded-2xl flex justify-between items-center gap-4">
                   <div className="flex-1">
                     <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">محذوف من: {item.deletedFrom || item.warehouse}</span>
                     <div className="flex items-center gap-2 mt-1">

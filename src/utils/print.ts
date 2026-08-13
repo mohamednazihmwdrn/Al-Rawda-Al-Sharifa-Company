@@ -14,7 +14,7 @@ export function getPrintUserName(displayNameOrUsername: string): string {
   return clean;
 }
 
-export function getNextPrintNumber(type: "normal" | "matrix" = "normal") {
+export function getNextPrintNumber(type: "normal" | "matrix" | "daily_receipt" = "normal") {
   const key = `print_counter_${type}`;
   const currentCount = localStorage.getItem(key) || "0";
   const nextCount = parseInt(currentCount) + 1;

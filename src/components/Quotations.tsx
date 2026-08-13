@@ -311,9 +311,9 @@ export default function Quotations({
                     />
                     {showAutocomplete && (
                       <div className="absolute top-[100%] left-0 right-0 bg-white border rounded-b-lg shadow-lg z-50 max-h-36 overflow-y-auto">
-                        {autocompleteResults.map(res => (
+                        {autocompleteResults.map((res, idx) => (
                           <div
-                            key={res.id}
+                            key={`${res.id || idx}-${idx}`}
                             onClick={() => {
                               setItemName(res.name);
                               setPrice(res.lastPrice || res.price || 0);
@@ -463,7 +463,7 @@ export default function Quotations({
                     </tr>
                   ) : (
                     draftItems.map((item, index) => (
-                      <tr key={item.id} className="border-b border-gray-50 last:border-0">
+                      <tr key={`${item.id || index}-${index}`} className="border-b border-gray-50 last:border-0">
                         <td className="p-2 text-center">{index + 1}</td>
                         <td className="p-2 font-semibold text-gray-800">{item.name}</td>
                         <td className="p-2 text-center font-bold">{item.quantity}</td>
@@ -525,11 +525,11 @@ export default function Quotations({
             <p className="text-gray-400 text-center py-10">لا توجد عروض أسعار محفوظة بالمنظومة حالياً.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[...quotations].sort(compareDatesDescending).map((q) => {
+              {[...quotations].sort(compareDatesDescending).map((q, qIdx) => {
                 const borderClass = q.status === "approved" ? "border-emerald-200 bg-emerald-50/20" : "border-amber-200 bg-amber-50/20";
                 const statusBadge = q.status === "approved" ? "bg-emerald-600 text-white" : "bg-amber-500 text-amber-950";
                 return (
-                  <div key={q.id} className={`p-4 border rounded-2xl shadow-xs transition-all space-y-3 ${borderClass}`}>
+                  <div key={`${q.id || qIdx}-${qIdx}`} className={`p-4 border rounded-2xl shadow-xs transition-all space-y-3 ${borderClass}`}>
                     <div className="flex justify-between items-start">
                       <div>
                         <div className="font-bold text-gray-800 text-sm">📋 عرض سعر رقم: {q.quotationNumber || 1}</div>

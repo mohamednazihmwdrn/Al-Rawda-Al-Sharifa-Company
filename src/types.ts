@@ -32,6 +32,8 @@ export interface Item {
   originalDate?: string;
   rolledOver?: boolean;
   rolledOverToDate?: string;
+  resent?: boolean;
+  resentToDate?: string;
   originalQty?: string;
   receivedQty?: string;
   remainingQty?: string;

@@ -223,7 +223,7 @@ export default function Cart({ currentUser, savedItems, items, onSaveCart, onSav
               <div className="absolute top-[100%] left-0 right-0 bg-white border border-gray-100 rounded-b-xl shadow-lg z-50 max-h-48 overflow-y-auto mt-1">
                 {autocompleteResults.map((item, index) => (
                   <div
-                    key={item.id}
+                    key={`${item.id || index}-${index}`}
                     onClick={() => {
                       setItemName(item.name);
                       setShowAutocomplete(false);
@@ -273,7 +273,7 @@ export default function Cart({ currentUser, savedItems, items, onSaveCart, onSav
                 <p className="text-gray-400 text-sm text-center py-10 leading-relaxed font-medium">السلة فارغة حالياً.<br/>ابدأ بإدخال الأعداد وأسماء الأصناف أعلاه.</p>
               ) : (
                 cart.map((item, idx) => (
-                  <div key={item.id} className="bg-white p-3 rounded-xl border-2 border-gray-100 flex justify-between items-center gap-4 transition-all hover:border-[#8b6b4d]/30">
+                  <div key={`${item.id || idx}-${idx}`} className="bg-white p-3 rounded-xl border-2 border-gray-100 flex justify-between items-center gap-4 transition-all hover:border-[#8b6b4d]/30">
                     <div className="flex items-center gap-3">
                       <div className="bg-[#8b6b4d]/15 text-[#8b6b4d] font-black text-xs px-2.5 py-1 rounded-lg">
                         العدد: {item.company}

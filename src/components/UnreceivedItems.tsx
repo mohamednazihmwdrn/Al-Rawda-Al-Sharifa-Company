@@ -8,13 +8,15 @@ interface UnreceivedItemsProps {
   mergedInvoices: MergedInvoice[];
   warehouseFilter: string | null; // Null means manager (all), non-null means a specific warehouse
   onUpdateItemDeliveryStatus?: (invoiceId: string, itemId: string, status: "received" | "delayed") => void;
+  onResendUnreceivedItems?: (itemsToResend: Item[], defaultWhName?: string) => void;
 }
 
 export default function UnreceivedItems({
   currentUser,
   mergedInvoices,
   warehouseFilter,
-  onUpdateItemDeliveryStatus
+  onUpdateItemDeliveryStatus,
+  onResendUnreceivedItems
 }: UnreceivedItemsProps) {
   // Filter and group unreceived items from approved invoices
   // Approved invoices are those with status "approved" or "auto_approved"
@@ -118,11 +120,11 @@ export default function UnreceivedItems({
             <p className="text-xs text-gray-400 dark:text-gray-500">تم استلام كافة البضائع والأصناف المعتمدة بنجاح تام.</p>
           </div>
         ) : (
-          groups.map((group) => {
+          groups.map((group, gIdx) => {
             const isExpanded = !!expandedGroups[group.id];
             return (
               <div 
-                key={group.id} 
+                key={`${group.id}-${gIdx}`} 
                 className="bg-white dark:bg-[#1a1a1a] p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xs hover:shadow-md transition-all space-y-4"
               >
                 {/* Group Header Info */}
@@ -157,6 +159,15 @@ export default function UnreceivedItems({
                   </div>
                   
                   <div className="flex flex-wrap gap-2 w-full md:w-auto justify-end">
+                    {onResendUnreceivedItems && (
+                      <button
+                        onClick={() => onResendUnreceivedItems(group.items, group.warehouses[0])}
+                        className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold p-2.5 px-4 rounded-xl cursor-pointer transition-all flex items-center gap-1.5 shadow-xs"
+                        title="إعادة إرسال كافة الأصناف غير المستلمة في هذا البيان إلى الفاتورة المدمجة للمدير اليوم"
+                      >
+                        🔄 إعادة إرسال المدمجة للمدير
+                      </button>
+                    )}
                     <button
                       onClick={() => toggleGroup(group.id)}
                       className="bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-xs font-bold p-2.5 px-4 rounded-xl cursor-pointer transition-all flex items-center gap-1.5"
@@ -200,7 +211,7 @@ export default function UnreceivedItems({
 
                           return (
                             <tr 
-                              key={item.id || itemIdx} 
+                              key={`${group.id}-${item.id || itemIdx}-${itemIdx}`} 
                               className="hover:bg-gray-50/50 dark:hover:bg-gray-800/20 transition-all"
                             >
                               <td className="p-3 text-center font-bold text-gray-400">{itemIdx + 1}</td>
@@ -238,26 +249,42 @@ export default function UnreceivedItems({
                                   )}
 
                                   {/* Receipt Controllers */}
-                                  {onUpdateItemDeliveryStatus && (
-                                    <div className="flex items-center gap-1 mt-1">
-                                      <button
-                                        onClick={() => onUpdateItemDeliveryStatus(group.id, item.id, "received")}
-                                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold py-1 px-2.5 rounded-lg shadow-xs transition-all cursor-pointer flex items-center gap-1"
-                                        title="تعديل العدد وتأكيد الاستلام"
-                                      >
-                                        ✓ استلام
-                                      </button>
-                                      {item.deliveryStatus !== "delayed" && (
+                                  <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
+                                    {onUpdateItemDeliveryStatus && (
+                                      <>
                                         <button
-                                          onClick={() => onUpdateItemDeliveryStatus(group.id, item.id, "delayed")}
-                                          className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold py-1 px-2 rounded-lg transition-all cursor-pointer flex items-center justify-center"
-                                          title="تحديد كـ لم يصل بعد"
+                                          onClick={() => onUpdateItemDeliveryStatus(group.id, item.id, "received")}
+                                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold py-1 px-2.5 rounded-lg shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                                          title="تعديل العدد وتأكيد الاستلام"
                                         >
-                                          ✖ لم تصل
+                                          ✓ استلام
                                         </button>
-                                      )}
-                                    </div>
-                                  )}
+                                        {item.deliveryStatus !== "delayed" && (
+                                          <button
+                                            onClick={() => onUpdateItemDeliveryStatus(group.id, item.id, "delayed")}
+                                            className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold py-1 px-2 rounded-lg transition-all cursor-pointer flex items-center justify-center"
+                                            title="تحديد كـ لم يصل بعد"
+                                          >
+                                            ✖ لم تصل
+                                          </button>
+                                        )}
+                                      </>
+                                    )}
+
+                                    {item.resent ? (
+                                      <span className="bg-purple-100 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded-md text-[10px] font-bold border border-purple-200 dark:border-purple-800">
+                                        🔄 تم إعادة الإرسال للمدير {item.resentToDate && `(${item.resentToDate})`}
+                                      </span>
+                                    ) : onResendUnreceivedItems ? (
+                                      <button
+                                        onClick={() => onResendUnreceivedItems([item], item.warehouse)}
+                                        className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold py-1 px-2.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 shadow-2xs"
+                                        title="إعادة إرسال هذا البند فقط إلى الفاتورة المدمجة للمدير لليوم"
+                                      >
+                                        🔄 إعادة إرسال للمدير
+                                      </button>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </td>
                             </tr>

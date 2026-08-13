@@ -184,10 +184,10 @@ export default function ChatComponent({ currentUser, users }: ChatComponentProps
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold text-gray-600 block">اختر الأعضاء المشاركين:</label>
               <div className="max-h-32 overflow-y-auto space-y-1 bg-white p-2 rounded-xl border border-gray-100">
-                {Object.values(users).map((u) => {
+                {Object.values(users).map((u, uIdx) => {
                   if (u.username === currentUser.username) return null;
                   return (
-                    <label key={u.username} className="flex items-center gap-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 p-1 rounded-lg cursor-pointer">
+                    <label key={`${u.username}-${uIdx}`} className="flex items-center gap-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 p-1 rounded-lg cursor-pointer">
                       <input
                         type="checkbox"
                         checked={selectedParticipants.includes(u.username)}
@@ -227,11 +227,11 @@ export default function ChatComponent({ currentUser, users }: ChatComponentProps
             {chats.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-6">لا توجد محادثات جارية حالياً</p>
             ) : (
-              chats.map((chat) => {
+              chats.map((chat, cIdx) => {
                 const isActive = chat.id === activeChatId;
                 return (
                   <button
-                    key={chat.id}
+                    key={`${chat.id}-${cIdx}`}
                     onClick={() => setActiveChatId(chat.id)}
                     className={`w-full text-right p-3 rounded-xl transition-all flex flex-col gap-1 cursor-pointer border ${
                       isActive 
@@ -265,11 +265,11 @@ export default function ChatComponent({ currentUser, users }: ChatComponentProps
           <div className="space-y-1 pt-2 border-t border-gray-100/70">
             <h4 className="text-[10px] font-bold text-gray-400 px-2 uppercase tracking-wider mb-2">👥 ابدأ محادثة مباشرة مع:</h4>
             <div className="space-y-1">
-              {Object.values(users).map((u) => {
+              {Object.values(users).map((u, uIdx) => {
                 if (u.username === currentUser.username) return null;
                 return (
                   <button
-                    key={u.username}
+                    key={`quick-${u.username}-${uIdx}`}
                     onClick={() => startDirectChat(u)}
                     className="w-full text-right p-2.5 rounded-xl bg-white hover:bg-gray-50 border border-gray-100 flex items-center justify-between text-xs font-semibold text-gray-700 transition-all cursor-pointer"
                   >
@@ -322,7 +322,7 @@ export default function ChatComponent({ currentUser, users }: ChatComponentProps
                 messages.map((msg, idx) => {
                   const isMe = msg.sender === currentUser.username;
                   return (
-                    <div key={msg.id || idx} className={`flex ${isMe ? "justify-start" : "justify-end"}`}>
+                    <div key={`msg-${msg.id || idx}-${idx}`} className={`flex ${isMe ? "justify-start" : "justify-end"}`}>
                       <div className={`max-w-[80%] p-3.5 rounded-2xl shadow-sm text-sm ${
                         isMe 
                           ? "bg-[#8b6b4d] text-white rounded-tr-none" 

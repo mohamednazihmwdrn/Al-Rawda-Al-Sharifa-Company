@@ -590,11 +590,18 @@ export default function App() {
   };
 
   // Automatic deficit merging for manager (real-time from Firestore)
-  const autoMergePendingInvoices = async () => {
+  const autoMergePendingInvoices = async (extraItems: Item[] = []) => {
     const today = getToday();
 
     // Query active items that are pending 'waiting' directly from DB
-    const pendingItems = (await getPendingItemsFromDb()) || [];
+    const pendingItemsFromDb = (await getPendingItemsFromDb()) || [];
+    
+    // Combine items from DB with extraItems passed in, deduplicating by ID
+    const pendingItemsMap = new Map<string, Item>();
+    pendingItemsFromDb.forEach(it => { if (it.id) pendingItemsMap.set(it.id, it); });
+    extraItems.forEach(it => { if (it.id) pendingItemsMap.set(it.id, it); });
+    const pendingItems = Array.from(pendingItemsMap.values());
+
     // Check existing pending merged invoices for today
     const existingInvoices = (await getPendingMergedInvoicesFromDb(today)) || [];
 
@@ -644,21 +651,13 @@ export default function App() {
         return;
       }
 
-      // Avoid redundant write if already consolidated and item counts match
-      if (
-        existingInvoices.length === 1 &&
-        combinedItems.length === (primary.items?.length || 0) &&
-        combinedWarehouses.length === (primary.warehouses?.length || 0)
-      ) {
-        return;
-      }
-
       await saveMergedInvoice({
         ...primary,
         items: combinedItems,
         total: combinedItems.length,
         warehouses: combinedWarehouses,
-        time: primary.time || getNow()
+        time: primary.time || getNow(),
+        unread: true
       });
 
       // If multiple pending invoices existed for today, delete the extra ones to keep everything in ONE invoice
@@ -936,21 +935,25 @@ export default function App() {
 
     if (status === "received") {
       if (targetItem) {
+        const reqQty = targetItem.remainingQty || targetItem.company || "1";
+        setReceiptReceivedQty(reqQty);
+        setReceiptRemainingQty("0");
         setReceiptConfirmModal({
           invoiceId,
           itemId,
           itemName: targetItem.fixedName,
-          requiredQty: targetItem.remainingQty || targetItem.company
+          requiredQty: reqQty
         });
         return;
       }
     }
 
     if (targetItem) {
-      const updatedItem = {
+      const updatedItem: Item = {
         ...targetItem,
         deliveryStatus: status,
-        deliveredAt: status === "received" ? getFullDate() : undefined
+        deliveredAt: status === "received" ? getFullDate() : undefined,
+        hasPartialReceipt: status === "received" && (targetItem.remainingQty === "0" || !targetItem.remainingQty) ? false : targetItem.hasPartialReceipt
       };
       await saveItem(updatedItem);
     }
@@ -962,17 +965,21 @@ export default function App() {
           return {
             ...it,
             deliveryStatus: status,
-            deliveredAt: status === "received" ? getFullDate() : undefined
+            deliveredAt: status === "received" ? getFullDate() : undefined,
+            hasPartialReceipt: status === "received" && (it.remainingQty === "0" || !it.remainingQty) ? false : it.hasPartialReceipt
           };
         }
         return it;
       });
 
-      await saveMergedInvoice({
+      const updatedInvoice = {
         ...invoiceToUpdate,
         items: updatedItems,
         total: updatedItems.length
-      });
+      };
+
+      await saveMergedInvoice(updatedInvoice);
+      setMergedInvoices(prev => prev.map(m => m.id === invoiceToUpdate.id ? updatedInvoice : m));
     }
 
     const archToUpdate = archives.find(a => a.id === invoiceId || a.items.some(i => i.id === itemId));
@@ -1054,10 +1061,22 @@ export default function App() {
     // Determine original quantity
     const originalQty = itemToUpdate.originalQty || itemToUpdate.company;
     
-    // Check if remaining quantity is 0
-    let remainingVal = parseFloat(remainingNowStr);
+    const cleanRemainingStr = (remainingNowStr || "").trim();
+    const cleanReceivedStr = (receivedNowStr || "").trim();
+
+    const reqNum = parseFloat(itemToUpdate.remainingQty || itemToUpdate.company || "1");
+    let receivedNowNum = parseFloat(cleanReceivedStr);
+    if (isNaN(receivedNowNum)) {
+      receivedNowNum = isNaN(reqNum) ? 1 : reqNum;
+    }
+
+    let remainingVal = parseFloat(cleanRemainingStr);
     if (isNaN(remainingVal)) {
-      remainingVal = remainingNowStr === "0" ? 0 : 1;
+      if (cleanRemainingStr === "" || cleanRemainingStr === "0") {
+        remainingVal = 0;
+      } else {
+        remainingVal = Math.max(0, (isNaN(reqNum) ? 0 : reqNum) - receivedNowNum);
+      }
     }
 
     const isFullyReceived = remainingVal <= 0;
@@ -1066,17 +1085,14 @@ export default function App() {
     let pastReceived = parseFloat(itemToUpdate.receivedQty || "0");
     if (isNaN(pastReceived)) pastReceived = 0;
 
-    let receivedNowNum = parseFloat(receivedNowStr);
-    if (isNaN(receivedNowNum)) receivedNowNum = 0;
-
     const cumulativeReceived = (pastReceived + receivedNowNum).toString();
 
     const updatedItem: Item = {
       ...itemToUpdate,
       originalQty,
       receivedQty: isFullyReceived ? originalQty : cumulativeReceived,
-      remainingQty: isFullyReceived ? "0" : remainingNowStr,
-      hasPartialReceipt: true,
+      remainingQty: isFullyReceived ? "0" : remainingVal.toString(),
+      hasPartialReceipt: !isFullyReceived,
       deliveryStatus: isFullyReceived ? "received" : "delayed",
       deliveredAt: isFullyReceived ? getFullDate() : undefined
     };
@@ -1093,11 +1109,14 @@ export default function App() {
         return it;
       });
 
-      await saveMergedInvoice({
+      const updatedInvoice = {
         ...invoiceToUpdate,
         items: updatedItems,
         total: updatedItems.length
-      });
+      };
+
+      await saveMergedInvoice(updatedInvoice);
+      setMergedInvoices(prev => prev.map(m => m.id === invoiceToUpdate.id ? updatedInvoice : m));
     }
 
     // Update in archives
@@ -1110,11 +1129,14 @@ export default function App() {
         return it;
       });
 
-      await saveArchive({
+      const updatedArch = {
         ...archToUpdate,
         items: updatedItems,
         total: updatedItems.length
-      });
+      };
+
+      await saveArchive(updatedArch);
+      setArchives(prev => prev.map(a => a.id === archToUpdate.id ? updatedArch : a));
     }
 
     // Update in reports
@@ -1127,11 +1149,14 @@ export default function App() {
         return it;
       });
 
-      await saveReport({
+      const updatedRep = {
         ...repToUpdate,
         items: updatedItems,
         total: updatedItems.length
-      });
+      };
+
+      await saveReport(updatedRep);
+      setReports(prev => prev.map(r => r.id === repToUpdate.id ? updatedRep : r));
     }
 
     setReceiptConfirmModal(null);
@@ -1228,6 +1253,88 @@ export default function App() {
     await autoMergePendingInvoices();
 
     alert(`✅ تم ترحيل عدد (${previousUnreceivedItems.length}) بند بنجاح إلى الفاتورة المدمجة لليوم!`);
+  };
+
+  const handleResendNotArrivedItems = async (itemsToResend: Item[], defaultWhName?: string) => {
+    if (!currentUser || itemsToResend.length === 0) return;
+    const today = getToday();
+    
+    if (!confirm(`هل أنت متأكد من إعادة إرسال عدد (${itemsToResend.length}) صنف غير مستلم ونقلهم إلى الفاتورة المدمجة لليوم للمدير العام؟`)) {
+      return;
+    }
+
+    try {
+      const newCreatedItems: Item[] = [];
+
+      for (const itemToResend of itemsToResend) {
+        const qtyToResend = itemToResend.hasPartialReceipt && itemToResend.remainingQty && itemToResend.remainingQty !== "0"
+          ? itemToResend.remainingQty
+          : itemToResend.company;
+
+        const newId = itemToResend.id + "_resend_" + Date.now() + Math.random().toString(36).slice(2, 5);
+        const originalNoteStr = itemToResend.note && itemToResend.note !== "-" ? itemToResend.note : "";
+        const resendNote = originalNoteStr 
+          ? `${originalNoteStr} (إعادة إرسال لبند لم يصل من طلب بتاريخ ${itemToResend.date})`
+          : `(إعادة إرسال لبند لم يصل من طلب بتاريخ ${itemToResend.date})`;
+
+        const itemWh = itemToResend.warehouse || defaultWhName || currentUser.warehouse || "مخزن غير محدد";
+
+        const newItem: Item = {
+          id: newId,
+          company: qtyToResend,
+          fixedName: itemToResend.fixedName,
+          description: itemToResend.description || "",
+          note: resendNote,
+          date: today,
+          time: getNow(),
+          warehouse: itemWh,
+          user: currentUser.displayName || currentUser.username,
+          savedAt: getFullDate(),
+          status: "waiting", // back to waiting for manager approval
+          deliveryStatus: "pending",
+          createdAt: Date.now()
+        };
+
+        await saveItem(newItem);
+        newCreatedItems.push(newItem);
+
+        // 1. Mark original item as resent
+        const originalItem = items.find(i => i.id === itemToResend.id);
+        if (originalItem) {
+          await saveItem({
+            ...originalItem,
+            resent: true,
+            resentToDate: today
+          });
+        }
+      }
+
+      // 2. Mark resent status inside original MergedInvoices
+      for (const itemToResend of itemsToResend) {
+        const invToUpdate = mergedInvoices.find(m => m.items?.some(it => it.id === itemToResend.id));
+        if (invToUpdate) {
+          const updatedItems = invToUpdate.items.map(it => {
+            if (it.id === itemToResend.id) {
+              return { ...it, resent: true, resentToDate: today };
+            }
+            return it;
+          });
+          await saveMergedInvoice({
+            ...invToUpdate,
+            items: updatedItems,
+            total: updatedItems.length
+          });
+        }
+      }
+
+      // 3. Consolidate new items immediately into Manager's Daily Merged Invoice for today
+      await autoMergePendingInvoices(newCreatedItems);
+
+      alert(`✅ تم إعادة إرسال عدد (${itemsToResend.length}) صنف بنجاح ونقلهم إلى الفاتورة المدمجة للمدير العام لليوم!`);
+    } catch (err) {
+      console.error("Failed to re-send items:", err);
+      alert("حدث خطأ أثناء محاولة إعادة إرسال الأصناف.");
+    }
   };
 
   // === Delete and Edit Waiting Items ===
@@ -1933,55 +2040,6 @@ export default function App() {
           return m.items.some(it => (it.warehouse || "").trim().includes(whName.trim()));
         });
 
-        // Handler to re-send non-arrived items
-        const handleResendNotArrivedItems = async (itemsToResend: Item[]) => {
-          if (!currentUser || itemsToResend.length === 0) return;
-          const wh = currentUser.warehouse || whName;
-          const today = getToday();
-          
-          if (!confirm(`هل أنت متأكد من إعادة إرسال عدد (${itemsToResend.length}) صنف لم يصل إلى المدير العام اليوم كنواقص جديدة؟`)) {
-            return;
-          }
-
-          try {
-            for (const itemToResend of itemsToResend) {
-              const qtyToResend = itemToResend.hasPartialReceipt && itemToResend.remainingQty && itemToResend.remainingQty !== "0"
-                ? itemToResend.remainingQty
-                : itemToResend.company;
-
-              const newId = itemToResend.id + "_resend_" + Date.now() + Math.random().toString(36).slice(2, 5);
-              const originalNoteStr = itemToResend.note && itemToResend.note !== "-" ? itemToResend.note : "";
-              const resendNote = originalNoteStr 
-                ? `${originalNoteStr} (إعادة إرسال لبند لم يصل من طلب بتاريخ ${itemToResend.date})`
-                : `(إعادة إرسال لبند لم يصل من طلب بتاريخ ${itemToResend.date})`;
-
-              const newItem: Item = {
-                id: newId,
-                company: qtyToResend,
-                fixedName: itemToResend.fixedName,
-                description: itemToResend.description || "",
-                note: resendNote,
-                date: today,
-                time: getNow(),
-                warehouse: itemToResend.warehouse || wh,
-                user: currentUser.displayName || currentUser.username,
-                savedAt: getFullDate(),
-                status: "waiting", // back to waiting for manager approval
-                deliveryStatus: "pending",
-                createdAt: Date.now()
-              };
-
-              await saveItem(newItem);
-            }
-
-            await autoMergePendingInvoices();
-            alert("✅ تم إعادة إرسال الأصناف المحددة بنجاح إلى المدير العام وتحديث قائمتك اليوم!");
-          } catch (err) {
-            console.error("Failed to re-send items:", err);
-            alert("حدث خطأ أثناء محاولة إعادة إرسال الأصناف.");
-          }
-        };
-
         const handleFullReceiptDirect = async (invoiceId: string, item: Item) => {
           const qty = item.remainingQty || item.company;
           await handleConfirmPartialReceipt(invoiceId, item.id, qty, "0");
@@ -2066,7 +2124,7 @@ export default function App() {
                         <p className="text-gray-400 text-center py-4 text-xs">لا توجد نواقص نشطة للمستودع حالياً.</p>
                       ) : (
                         whItems.map((item, index) => (
-                          <div key={item.id} className="p-3 bg-gray-50 border rounded-xl flex justify-between items-center gap-4">
+                          <div key={`${item.id}-${index}`} className="p-3 bg-gray-50 border rounded-xl flex justify-between items-center gap-4">
                             <div>
                               <strong className="text-sm font-bold text-[#8b6b4d]">{index+1}. {item.company}</strong>
                               <span className="text-xs text-gray-700 font-semibold mr-2">{item.fixedName} - {item.description}</span>
@@ -2111,12 +2169,12 @@ export default function App() {
                       {whSentInvs.length === 0 ? (
                         <p className="text-gray-400 text-center py-8 text-sm">لا توجد فواتير مرسلة مسبقاً.</p>
                       ) : (
-                        whSentInvs.map((inv) => {
+                        whSentInvs.map((inv, invIdx) => {
                           const whInvoiceItems = inv.items.filter(it => (it.warehouse || "").trim().includes(whName.trim()));
                           const isExpanded = !!whExpandedInvs[inv.id];
 
                           return (
-                            <div key={inv.id} className="border rounded-xl overflow-hidden shadow-sm bg-gray-50/30">
+                            <div key={`${inv.id}-${invIdx}`} className="border rounded-xl overflow-hidden shadow-sm bg-gray-50/30">
                               <div 
                                 onClick={() => setWhExpandedInvs(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))}
                                 className="p-4 bg-white hover:bg-gray-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 cursor-pointer select-none transition-all"
@@ -2153,7 +2211,7 @@ export default function App() {
                                   </div>
                                   <div className="space-y-2">
                                     {whInvoiceItems.map((item, idx) => (
-                                      <div key={item.id || idx} className="p-2.5 bg-gray-50 rounded-lg flex justify-between items-center text-xs">
+                                      <div key={`${inv.id}-${item.id || idx}-${idx}`} className="p-2.5 bg-gray-50 rounded-lg flex justify-between items-center text-xs">
                                         <div>
                                           <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2 py-0.5 rounded text-[10px] ml-2">مطلوب: {item.company}</span>
                                           <strong className="text-gray-800">{item.fixedName}</strong>
@@ -2237,12 +2295,12 @@ export default function App() {
                   </div>
 
                   <div className="space-y-6 max-h-[700px] overflow-y-auto pr-1">
-                    {approvedInvs.map((inv) => {
+                    {approvedInvs.map((inv, invIdx) => {
                       const whInvoiceItems = inv.items.filter(it => (it.warehouse || "").trim().includes(whName.trim()));
                       const pendingCount = whInvoiceItems.filter(it => it.deliveryStatus !== "received" && it.deliveryStatus !== "delayed").length;
 
                       return (
-                        <div key={inv.id} className={`p-4 rounded-xl border transition-all ${pendingCount > 0 ? "bg-amber-50/15 border-amber-200" : "bg-emerald-50/15 border-emerald-100"}`}>
+                        <div key={`${inv.id}-${invIdx}`} className={`p-4 rounded-xl border transition-all ${pendingCount > 0 ? "bg-amber-50/15 border-amber-200" : "bg-emerald-50/15 border-emerald-100"}`}>
                           <div className="flex justify-between items-center mb-3">
                             <div>
                               <strong className="text-sm font-bold text-[#1e2b3c]">📄 بيان النواقص المعتمد رقم #{inv.invoiceNumber}</strong>
@@ -2259,10 +2317,10 @@ export default function App() {
                               const isDelayed = item.deliveryStatus === "delayed";
 
                               return (
-                                <div key={item.id || itemIdx} className="p-3 bg-gray-50/50 border rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 text-xs hover:bg-gray-50 transition-all">
+                                <div key={`${inv.id}-${item.id || itemIdx}-${itemIdx}`} className="p-3 bg-gray-50/50 border rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 text-xs hover:bg-gray-50 transition-all">
                                   <div>
                                     <div className="flex items-center gap-2 flex-wrap">
-                                      {item.hasPartialReceipt ? (
+                                      {item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0" ? (
                                         <span className="bg-red-50 text-red-700 font-extrabold px-2 py-0.5 rounded text-[10px] border border-red-100 animate-pulse">
                                           متبقي: {item.remainingQty} (مطلوب: {item.originalQty || item.company})
                                         </span>
@@ -2277,7 +2335,7 @@ export default function App() {
                                     <div className="text-[10px] text-gray-500 mt-1">
                                       <span>{item.description && item.description !== "-" && item.description}</span>
                                       {item.note && item.note !== "-" && <span className="mr-2">📝 ملاحظة: {item.note}</span>}
-                                      {item.hasPartialReceipt && (
+                                      {item.hasPartialReceipt && item.receivedQty && item.receivedQty !== "0" && (
                                         <span className="mr-2 text-emerald-600 font-bold">✓ مستلم سابقاً: {item.receivedQty}</span>
                                       )}
                                     </div>
@@ -2367,8 +2425,8 @@ export default function App() {
                   </div>
 
                   <div className="space-y-4">
-                    {notArrivedGroups.map(({ inv, items: groupItems }) => (
-                      <div key={inv.id} className="bg-white p-6 rounded-2xl shadow-sm border border-red-100">
+                    {notArrivedGroups.map(({ inv, items: groupItems }, gIdx) => (
+                      <div key={`${inv.id}-${gIdx}`} className="bg-white p-6 rounded-2xl shadow-sm border border-red-100">
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-3 mb-4">
                           <div>
                             <strong className="text-sm font-bold text-red-900">📄 فواتير نواقص معلقة من الفاتورة رقم #{inv.invoiceNumber}</strong>
@@ -2389,7 +2447,7 @@ export default function App() {
                               : item.company;
 
                             return (
-                              <div key={item.id || itemIdx} className="p-3 bg-red-50/15 border border-red-100 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs">
+                              <div key={`${inv.id}-${item.id || itemIdx}-${itemIdx}`} className="p-3 bg-red-50/15 border border-red-100 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs">
                                 <div>
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded text-[10px]">
@@ -2428,7 +2486,7 @@ export default function App() {
                   <p className="text-gray-400 text-center py-6 text-xs">لا توجد بنود بانتظار المراجعة حالياً.</p>
                 ) : (
                   items.filter(i => i.warehouse === whName && i.status === "waiting").map((item, index) => (
-                    <div key={item.id} className="p-3 bg-amber-50/50 border border-amber-200 rounded-xl flex justify-between items-center gap-4 flex-wrap sm:flex-nowrap">
+                    <div key={`${item.id}-${index}`} className="p-3 bg-amber-50/50 border border-amber-200 rounded-xl flex justify-between items-center gap-4 flex-wrap sm:flex-nowrap">
                       <div>
                         <strong className="text-sm font-bold text-amber-900">{index+1}. {item.company}</strong>
                         <span className="text-xs text-gray-700 font-semibold mr-2">{item.fixedName} - {item.description}</span>
@@ -2468,8 +2526,8 @@ export default function App() {
                 {whArchiveList.length === 0 ? (
                   <p className="text-gray-400 text-center py-6">الأرشيف فارغ للمستودع حالياً.</p>
                 ) : (
-                  whArchiveList.map((arch) => (
-                    <div key={arch.id} className="p-3 bg-[#f5f2ed]/45 border rounded-xl flex justify-between items-center">
+                  whArchiveList.map((arch, archIdx) => (
+                    <div key={`${arch.id}-${archIdx}`} className="p-3 bg-[#f5f2ed]/45 border rounded-xl flex justify-between items-center">
                       <div>
                         <strong className="text-sm text-gray-800">📄 {arch.title}</strong>
                         <p className="text-xs text-gray-400 mt-1">التاريخ: {arch.date} | عدد البنود: {arch.items.length}</p>
@@ -2608,6 +2666,7 @@ export default function App() {
             mergedInvoices={mergedInvoices}
             warehouseFilter={null}
             onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
+            onResendUnreceivedItems={handleResendNotArrivedItems}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2633,6 +2692,7 @@ export default function App() {
             mergedInvoices={mergedInvoices}
             warehouseFilter={currentUser.warehouse || ""}
             onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
+            onResendUnreceivedItems={handleResendNotArrivedItems}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2875,14 +2935,14 @@ export default function App() {
                   {/* Custom Warehouses list for managers */}
                   {(() => {
                     const seenWarehouses = new Set<string>();
-                    return (Object.values(users) as User[]).map(user => {
+                    return (Object.values(users) as User[]).map((user, uIdx) => {
                       if (user.username === "مدير") return null;
                       const wh = user.warehouse || "";
                       if (!wh || wh === "مخزن النحاس" || wh === "مخزن النادي") return null;
                       if (seenWarehouses.has(wh)) return null;
                       seenWarehouses.add(wh);
                       return (
-                        <div key={user.username}>
+                        <div key={`${user.username}-${uIdx}`}>
                           {renderWarehouseNav("warehouse-custom", user.warehouse, true, user.warehouse)}
                         </div>
                       );
@@ -3077,7 +3137,7 @@ export default function App() {
               <h3 className="text-xl font-bold text-[#8b6b4d] border-b pb-3 mb-4">{detailsModal.title}</h3>
               <div className="space-y-2.5">
                 {detailsModal.items.map((item, index) => (
-                  <div key={item.id || index} className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex justify-between items-center gap-4 text-sm">
+                  <div key={`${item.id || index}-${index}`} className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex justify-between items-center gap-4 text-sm">
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-gray-400 font-bold">{index + 1}.</span>

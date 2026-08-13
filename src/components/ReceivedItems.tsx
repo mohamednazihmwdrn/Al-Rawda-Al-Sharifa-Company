@@ -131,11 +131,11 @@ export default function ReceivedItems({
             <p className="text-xs text-gray-400 dark:text-gray-500">لم يتم تسجيل استلامات معتمدة على الفواتير الحالية حتى الآن.</p>
           </div>
         ) : (
-          groups.map((group) => {
+          groups.map((group, gIdx) => {
             const isExpanded = !!expandedGroups[group.id];
             return (
               <div 
-                key={group.id} 
+                key={`${group.id}-${gIdx}`} 
                 className="bg-white dark:bg-[#1a1a1a] p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xs hover:shadow-md transition-all space-y-4"
               >
                 {/* Group Header Info */}
@@ -213,7 +213,7 @@ export default function ReceivedItems({
 
                           return (
                             <tr 
-                              key={item.id || itemIdx} 
+                              key={`${group.id}-${item.id || itemIdx}-${itemIdx}`} 
                               className="hover:bg-gray-50/50 dark:hover:bg-gray-800/20 transition-all"
                             >
                               <td className="p-3 text-center font-bold text-gray-400">{itemIdx + 1}</td>
