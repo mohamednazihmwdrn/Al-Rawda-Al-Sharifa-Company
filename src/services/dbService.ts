@@ -50,7 +50,8 @@ import {
   WarehouseArchive, 
   Report, 
   SavedItem, 
-  Quotation 
+  Quotation,
+  TrashItem
 } from "../types";
 
 export enum OperationType {
@@ -565,6 +566,77 @@ export async function deleteQuotation(id: string) {
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `quotations/${id}`);
   }
+}
+
+// === Trash / Recycle Bin (سلة المحذوفات) ===
+export function listenTrash(callback: (trashItems: TrashItem[]) => void) {
+  return onSnapshot(collection(db, "trash"), (snapshot) => {
+    const trashItems: TrashItem[] = [];
+    snapshot.forEach((doc) => {
+      trashItems.push(doc.data() as TrashItem);
+    });
+    callback(trashItems);
+  }, (err) => {
+    handleFirestoreError(err, OperationType.GET, "trash");
+  });
+}
+
+export async function moveToTrash(trashRecord: TrashItem) {
+  try {
+    await setDoc(doc(db, "trash", trashRecord.id), trashRecord);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `trash/${trashRecord.id}`);
+  }
+}
+
+export async function permanentlyDeleteFromTrash(id: string) {
+  try {
+    await deleteDoc(doc(db, "trash", id));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `trash/${id}`);
+  }
+}
+
+export async function clearAllTrash() {
+  try {
+    const snapshot = await getDocs(collection(db, "trash"));
+    for (const docSnapshot of snapshot.docs) {
+      try {
+        await deleteDoc(doc(db, "trash", docSnapshot.id));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `trash/${docSnapshot.id}`);
+      }
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, "trash");
+  }
+}
+
+// Automatically clean items older than 15 days from trash
+export async function autoCleanOldTrash(): Promise<number> {
+  const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  let cleanedCount = 0;
+
+  try {
+    const snapshot = await getDocs(collection(db, "trash"));
+    for (const docSnapshot of snapshot.docs) {
+      const item = docSnapshot.data() as TrashItem;
+      const itemTimestamp = item.deletedTimestamp || 0;
+      if (itemTimestamp > 0 && (now - itemTimestamp) > FIFTEEN_DAYS_MS) {
+        try {
+          await deleteDoc(doc(db, "trash", docSnapshot.id));
+          cleanedCount++;
+        } catch (e) {
+          console.error("Failed to auto-clean trash item:", docSnapshot.id, e);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in autoCleanOldTrash:", err);
+  }
+
+  return cleanedCount;
 }
 
 // Clear all database tables (Manager setting)

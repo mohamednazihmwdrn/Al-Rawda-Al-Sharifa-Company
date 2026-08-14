@@ -396,6 +396,11 @@ export default function Dashboard({
                             <span className="text-gray-400 font-normal">{iIndex+1}.</span>
                             <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">العدد: {item.company}</span>
                             <span className="text-gray-800 font-extrabold">{item.fixedName}</span>
+                            {(item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")))) && (
+                              <span className="bg-red-100 text-red-700 border border-red-200 text-[10px] font-black px-2 py-0.5 rounded-md">
+                                لم يصل
+                              </span>
+                            )}
                           </span>
                           <div className="flex items-center gap-1 shrink-0">
                             <span className="bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">{item.warehouse}</span>
@@ -419,12 +424,19 @@ export default function Dashboard({
                             )}
                           </div>
                         </div>
-                        {item.note && item.note !== "-" && item.note !== "" && (
-                          <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
-                            <span>📝 ملاحظة:</span>
-                            <span className="font-medium text-gray-700">{item.note}</span>
-                          </div>
-                        )}
+                        {(() => {
+                          const cleanNote = (item.note || "")
+                            .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+                            .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
+                            .replace(/[\(（]?\s*لم تصل[^\)）]*[\)）]?/g, "")
+                            .trim();
+                          return cleanNote && cleanNote !== "-" && cleanNote !== "" ? (
+                            <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
+                              <span>📝 ملاحظة:</span>
+                              <span className="font-medium text-gray-700">{cleanNote}</span>
+                            </div>
+                          ) : null;
+                        })()}
                         {item.duplicateFrom && (
                           <div className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200/50 p-2.5 rounded-lg mt-1.5 font-semibold flex flex-col gap-0.5 max-w-full">
                             <span className="flex items-center gap-1 text-amber-800">⚠️ تنبيه تكرار البند:</span>
@@ -847,50 +859,6 @@ export default function Dashboard({
           </div>
         );
       })()}
-
-      {/* Row 3: Deleted Items */}
-      <div className="grid grid-cols-1 gap-6">
-        {/* Deleted Items (سلة المحذوفات) */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-800 border-r-4 border-[#8b6b4d] pr-3 mb-4">🗑️ المحذوفات مؤخراً</h3>
-          <div className="space-y-3 max-h-[300px] overflow-y-auto">
-            {!isManager ? (
-              <p className="text-gray-400 text-sm text-center py-6">سلة المحذوفات متاحة فقط للمدير لاستعادة أو حذف السجلات</p>
-            ) : deletedItems.length === 0 ? (
-              <p className="text-gray-400 text-sm text-center py-6">سلة المحذوفات فارغة</p>
-            ) : (
-              deletedItems.map((item, index) => (
-                <div key={`${item.id}-${index}`} className="bg-red-50/40 border border-red-100 p-3 rounded-2xl flex justify-between items-center gap-4">
-                  <div className="flex-1">
-                    <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">محذوف من: {item.deletedFrom || item.warehouse}</span>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="bg-red-100 text-red-700 font-black px-2.5 py-0.5 rounded-lg text-xs">العدد: {item.company}</span>
-                      <span className="font-extrabold text-gray-800 text-sm">{item.fixedName}</span>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-0.5">محذوف في: {item.deletedAt || item.date}</div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onRestoreDeleted(item.id)}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2 px-2.5 rounded-xl transition-all cursor-pointer"
-                      title="استعادة للفاتورة"
-                    >
-                      إرجاع
-                    </button>
-                    <button
-                      onClick={() => onPermanentDelete(item.id)}
-                      className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold p-2 px-2.5 rounded-xl transition-all cursor-pointer"
-                      title="حذف نهائي دون رجعة"
-                    >
-                      حذف نهائي
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Chart container */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">

@@ -40,6 +40,9 @@ export default function UnreceivedItems({
   approvedInvoices.forEach((inv) => {
     // Filter items in this invoice that are unreceived or have partial remaining quantities
     const unreceivedItems = inv.items.filter((item) => {
+      // Hide items that have already been resent to manager to prevent clutter/confusion
+      if (item.resent) return false;
+
       // If there is a warehouse filter, only show items belonging to that warehouse
       if (warehouseFilter && (item.warehouse || "").trim() !== warehouseFilter.trim()) {
         return false;
@@ -222,7 +225,14 @@ export default function UnreceivedItems({
                                 </div>
                                 <div className="text-[10px] text-gray-500 mt-1">
                                   {item.description && item.description !== "-" && <span>{item.description}</span>}
-                                  {item.note && item.note !== "-" && <span className="mr-2">📝 ملاحظة: {item.note}</span>}
+                                  {(() => {
+                                    const cleanNote = (item.note || "")
+                                      .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+                                      .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
+                                      .replace(/[\(（]?\s*لم تصل[^\)）]*[\)）]?/g, "")
+                                      .trim();
+                                    return cleanNote && cleanNote !== "-" ? <span className="mr-2">📝 ملاحظة: {cleanNote}</span> : null;
+                                  })()}
                                 </div>
                               </td>
                               {!warehouseFilter && (
@@ -238,9 +248,9 @@ export default function UnreceivedItems({
                                     <span className="bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-400 px-2.5 py-0.5 rounded-full font-bold text-[10px] border border-red-200 dark:border-red-900/30">
                                       🔴 مستلم جزئياً (مستلم: {item.receivedQty})
                                     </span>
-                                  ) : item.deliveryStatus === "delayed" ? (
-                                    <span className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 px-2.5 py-0.5 rounded-full font-bold text-[10px] border border-amber-200 dark:border-amber-900/30 animate-pulse">
-                                      ⏳ لم يصل / مؤجل
+                                  ) : (item.deliveryStatus === "delayed" || item.isNotArrived) ? (
+                                    <span className="bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-400 px-2.5 py-0.5 rounded-full font-bold text-[10px] border border-red-200 dark:border-red-900/30">
+                                      🔴 لم يصل
                                     </span>
                                   ) : (
                                     <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2.5 py-0.5 rounded-full font-bold text-[10px]">

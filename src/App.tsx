@@ -7,7 +7,8 @@ import {
   WarehouseArchive, 
   Report, 
   SavedItem, 
-  Quotation 
+  Quotation,
+  TrashItem
 } from "./types";
 import { 
   seedUsersIfEmpty, 
@@ -48,7 +49,12 @@ import {
   CompanyInfo,
   listenCompanyInfo,
   saveCompanyInfo,
-  listenChats
+  listenChats,
+  listenTrash,
+  moveToTrash,
+  permanentlyDeleteFromTrash,
+  clearAllTrash,
+  autoCleanOldTrash
 } from "./services/dbService";
 
 // Helper constants & utils
@@ -68,6 +74,7 @@ import PrivacyPolicy from "./components/PrivacyPolicy";
 import SmartPrint from "./components/SmartPrint";
 import UnreceivedItems from "./components/UnreceivedItems";
 import ReceivedItems from "./components/ReceivedItems";
+import Trash from "./components/Trash";
 
 export function hasPermission(user: User | null, permission: string): boolean {
   if (!user) return false;
@@ -116,6 +123,7 @@ export default function App() {
   const [reports, setReports] = useState<Report[]>([]);
   const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
   const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [customCompanies, setCustomCompanies] = useState<CustomCompany[]>([]);
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
   const [randomAyat, setRandomAyat] = useState({ text: "", reference: "" });
@@ -256,8 +264,12 @@ export default function App() {
     const unsubReports = listenReports(setReports);
     const unsubSaved = listenSavedItems(setSavedItems);
     const unsubQuotations = listenQuotations(setQuotations);
+    const unsubTrash = listenTrash(setTrashItems);
     const unsubCustomCompanies = listenCustomCompanies(setCustomCompanies);
     const unsubCompanyInfo = listenCompanyInfo(setCompanyInfo);
+
+    // Automatic clean-up of trash older than 15 days
+    autoCleanOldTrash().catch(e => console.error("Auto clean trash error:", e));
 
     return () => {
       unsubUsers();
@@ -268,6 +280,7 @@ export default function App() {
       unsubReports();
       unsubSaved();
       unsubQuotations();
+      unsubTrash();
       unsubCustomCompanies();
       unsubCompanyInfo();
     };
@@ -878,9 +891,23 @@ export default function App() {
     const invoice = mergedInvoices[index];
     if (!invoice) return;
 
-    if (confirm(`تأكيد حذف الفاتورة المدمجة #${invoice.invoiceNumber} نهائياً من قاعدة البيانات؟`)) {
+    if (confirm(`تأكيد حذف الفاتورة المدمجة #${invoice.invoiceNumber} ونقلها إلى سلة المحذوفات؟`)) {
+      const trashRecord: TrashItem = {
+        id: "trash_merged_" + invoice.id + "_" + Date.now(),
+        type: "mergedInvoice",
+        title: `فاتورة مدمجة #${invoice.invoiceNumber} (${invoice.date})`,
+        data: invoice,
+        itemCount: invoice.items?.length || invoice.total || 0,
+        deletedAt: `${getToday()} - ${getNow()}`,
+        deletedTimestamp: Date.now(),
+        deletedBy: currentUser?.displayName || currentUser?.username || "المدير",
+        warehouse: invoice.warehouses?.join(" - ") || "جميع المستودعات",
+        originalInvoiceNumber: invoice.invoiceNumber
+      };
+
+      await moveToTrash(trashRecord);
       await deleteMergedInvoice(invoice.id);
-      alert("🗑️ تم الحذف الكلي بنجاح!");
+      alert("🗑️ تم حذف الفاتورة ونقلها إلى سلة المحذوفات بنجاح!");
     }
   };
 
@@ -890,21 +917,76 @@ export default function App() {
     const item = inv.items[itemIndex];
     if (!item) return;
 
-    if (!confirm(`هل تريد حذف البند "${item.description}" من هذه الفاتورة المدمجة؟`)) return;
+    if (!confirm(`هل تريد حذف البند "${item.fixedName || item.description}" ونقله إلى سلة المحذوفات؟`)) return;
+
+    const trashRecord: TrashItem = {
+      id: "trash_item_" + item.id + "_" + Date.now(),
+      type: "item",
+      title: `بند محذوف: ${item.fixedName || item.description}`,
+      data: item,
+      itemCount: 1,
+      deletedAt: `${getToday()} - ${getNow()}`,
+      deletedTimestamp: Date.now(),
+      deletedBy: currentUser?.displayName || currentUser?.username || "المدير",
+      warehouse: item.warehouse || inv.warehouses?.join(" - "),
+      originalInvoiceNumber: inv.invoiceNumber
+    };
+    await moveToTrash(trashRecord);
 
     const updatedItems = [...inv.items];
     updatedItems.splice(itemIndex, 1);
 
     if (updatedItems.length === 0) {
       await deleteMergedInvoice(inv.id);
-      alert("🗑️ تم تفريغ وحذف الفاتورة المدمجة بالكامل!");
+      alert("🗑️ تم نقل البند إلى سلة المحذوفات وحذف الفاتورة المدمجة لعدم احتوائها على بنود أخرى!");
     } else {
       await saveMergedInvoice({
         ...inv,
         items: updatedItems,
         total: updatedItems.length
       });
-      alert("🗑️ تم حذف البند من الفاتورة المدمجة!");
+      alert("🗑️ تم حذف البند ونقله إلى سلة المحذوفات بنجاح!");
+    }
+  };
+
+  const handleRestoreFromTrash = async (trashItem: TrashItem) => {
+    try {
+      if (trashItem.type === "mergedInvoice" && trashItem.data) {
+        await saveMergedInvoice(trashItem.data);
+      } else if (trashItem.type === "item" && trashItem.data) {
+        await saveItem(trashItem.data);
+      } else if (trashItem.type === "archive" && trashItem.data) {
+        await saveArchive(trashItem.data);
+      } else if (trashItem.type === "report" && trashItem.data) {
+        await saveReport(trashItem.data);
+      } else if (trashItem.type === "quotation" && trashItem.data) {
+        await saveQuotation(trashItem.data);
+      }
+      await permanentlyDeleteFromTrash(trashItem.id);
+      alert(`✅ تمت استعادة "${trashItem.title}" بنجاح!`);
+    } catch (err) {
+      console.error("Failed to restore item:", err);
+      alert("حدث خطأ أثناء محاولة استعادة العنصر.");
+    }
+  };
+
+  const handlePermanentDeleteTrash = async (id: string) => {
+    try {
+      await permanentlyDeleteFromTrash(id);
+      alert("🗑️ تم الحذف النهائي للعنصر بنجاح!");
+    } catch (err) {
+      console.error("Failed to permanently delete:", err);
+      alert("حدث خطأ أثناء الحذف النهائي.");
+    }
+  };
+
+  const handleClearAllTrash = async () => {
+    try {
+      await clearAllTrash();
+      alert("🧹 تم إفراغ سلة المحذوفات بالكامل بنجاح!");
+    } catch (err) {
+      console.error("Failed to clear trash:", err);
+      alert("حدث خطأ أثناء إفراغ السلة.");
     }
   };
 
@@ -952,6 +1034,7 @@ export default function App() {
       const updatedItem: Item = {
         ...targetItem,
         deliveryStatus: status,
+        isNotArrived: status === "delayed" ? true : targetItem.isNotArrived,
         deliveredAt: status === "received" ? getFullDate() : undefined,
         hasPartialReceipt: status === "received" && (targetItem.remainingQty === "0" || !targetItem.remainingQty) ? false : targetItem.hasPartialReceipt
       };
@@ -965,6 +1048,7 @@ export default function App() {
           return {
             ...it,
             deliveryStatus: status,
+            isNotArrived: status === "delayed" ? true : it.isNotArrived,
             deliveredAt: status === "received" ? getFullDate() : undefined,
             hasPartialReceipt: status === "received" && (it.remainingQty === "0" || !it.remainingQty) ? false : it.hasPartialReceipt
           };
@@ -1272,19 +1356,24 @@ export default function App() {
           : itemToResend.company;
 
         const newId = itemToResend.id + "_resend_" + Date.now() + Math.random().toString(36).slice(2, 5);
-        const originalNoteStr = itemToResend.note && itemToResend.note !== "-" ? itemToResend.note : "";
-        const resendNote = originalNoteStr 
-          ? `${originalNoteStr} (إعادة إرسال لبند لم يصل من طلب بتاريخ ${itemToResend.date})`
-          : `(إعادة إرسال لبند لم يصل من طلب بتاريخ ${itemToResend.date})`;
+        const cleanOriginalNote = (itemToResend.note && itemToResend.note !== "-" ? itemToResend.note : "")
+          .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+          .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
+          .replace(/[\(（]?\s*لم تصل[^\)）]*[\)）]?/g, "")
+          .trim();
+
+        const cleanFixedName = (itemToResend.fixedName || "")
+          .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+          .trim();
 
         const itemWh = itemToResend.warehouse || defaultWhName || currentUser.warehouse || "مخزن غير محدد";
 
         const newItem: Item = {
           id: newId,
           company: qtyToResend,
-          fixedName: itemToResend.fixedName,
+          fixedName: cleanFixedName,
           description: itemToResend.description || "",
-          note: resendNote,
+          note: cleanOriginalNote,
           date: today,
           time: getNow(),
           warehouse: itemWh,
@@ -1292,6 +1381,7 @@ export default function App() {
           savedAt: getFullDate(),
           status: "waiting", // back to waiting for manager approval
           deliveryStatus: "pending",
+          isNotArrived: true,
           createdAt: Date.now()
         };
 
@@ -2402,8 +2492,9 @@ export default function App() {
               // Group unreceived/delayed items
               const notArrivedGroups = approvedInvs.map(inv => {
                 const unarrived = inv.items.filter(item => {
+                  if (item.resent) return false; // Hide items already resent to manager
                   if (!(item.warehouse || "").trim().includes(whName.trim())) return false;
-                  const isDelayed = item.deliveryStatus === "delayed";
+                  const isDelayed = item.deliveryStatus === "delayed" || item.isNotArrived;
                   const isPartialWithRemaining = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
                   return isDelayed || isPartialWithRemaining;
                 });
@@ -2683,6 +2774,20 @@ export default function App() {
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
             هذا القسم غير مصرح لك بدخوله.
+          </div>
+        );
+      case "trash":
+        return (currentUser?.role === "مدير" || hasPermission(currentUser, "trash")) ? (
+          <Trash
+            currentUser={currentUser}
+            trashItems={trashItems}
+            onRestore={handleRestoreFromTrash}
+            onPermanentDelete={handlePermanentDeleteTrash}
+            onClearAll={handleClearAllTrash}
+          />
+        ) : (
+          <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
+            سلة المحذوفات مخصصة للمدير العام فقط.
           </div>
         );
       case "warehouse-unreceived":
@@ -2986,6 +3091,24 @@ export default function App() {
                 }`}
               >
                 📦 الأرشيف العام للفواتير
+              </button>
+            )}
+
+            {hasPermission(currentUser, "trash") && (
+              <button
+                onClick={() => { setActiveSection("trash"); setSidebarOpen(false); }}
+                className={`w-full flex items-center justify-between p-3 rounded-xl text-right text-sm font-semibold transition-all cursor-pointer ${
+                  activeSection === "trash" ? "bg-red-600/30 text-red-200 border border-red-500/20" : "text-gray-300 hover:bg-white/5"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  🗑️ سلة المحذوفات
+                </div>
+                {trashItems.length > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                    {trashItems.length}
+                  </span>
+                )}
               </button>
             )}
 

@@ -150,6 +150,23 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "date", "clientName", "items", "total", "status"]
+    },
+    "TrashItem": {
+      "title": "TrashItem",
+      "description": "Deleted items or invoices in trash recycle bin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "data": { "type": "object" },
+        "itemCount": { "type": "number" },
+        "deletedAt": { "type": "string" },
+        "deletedTimestamp": { "type": "number" },
+        "deletedBy": { "type": "string" },
+        "warehouse": { "type": "string" }
+      },
+      "required": ["id", "type", "title", "deletedAt", "deletedTimestamp", "deletedBy"]
     }
   },
   "firestore": {
@@ -184,6 +201,10 @@
     "quotations": {
       "schema": "Quotation",
       "description": "Quotations issued by the manager"
+    },
+    "trash": {
+      "schema": "TrashItem",
+      "description": "Recycle bin collection for deleted invoices and items"
     }
   }
 }

@@ -102,8 +102,32 @@ export function parseArabicOrStandardDate(dateStr: string, timeStr?: string): Da
 /**
  * Comparator to sort dates/times descending (newest on top, oldest at bottom)
  */
-export function compareDatesDescending<T extends { date: string; time?: string }>(a: T, b: T): number {
-  const dateA = parseArabicOrStandardDate(a.date, a.time);
-  const dateB = parseArabicOrStandardDate(b.date, b.time);
-  return dateB.getTime() - dateA.getTime();
+export function compareDatesDescending<T extends { date?: string; time?: string; invoiceNumber?: number; createdAt?: number | string }>(a: T, b: T): number {
+  const dateA = parseArabicOrStandardDate(a.date || "", a.time);
+  const dateB = parseArabicOrStandardDate(b.date || "", b.time);
+  const diff = dateB.getTime() - dateA.getTime();
+  if (diff !== 0) return diff;
+  if (b.invoiceNumber && a.invoiceNumber && b.invoiceNumber !== a.invoiceNumber) {
+    return b.invoiceNumber - a.invoiceNumber;
+  }
+  if (b.createdAt && a.createdAt && b.createdAt !== a.createdAt) {
+    const numA = typeof a.createdAt === "number" ? a.createdAt : new Date(a.createdAt).getTime() || 0;
+    const numB = typeof b.createdAt === "number" ? b.createdAt : new Date(b.createdAt).getTime() || 0;
+    return numB - numA;
+  }
+  return 0;
+}
+
+/**
+ * Format timestamp or date string to readable Arabic format
+ */
+export function formatDateArabic(val: number | string | Date): string {
+  if (!val) return "";
+  const d = typeof val === "object" ? val : new Date(val);
+  if (isNaN(d.getTime())) return String(val);
+  return d.toLocaleDateString("ar-EG", {
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  });
 }

@@ -34,6 +34,7 @@ export interface Item {
   rolledOverToDate?: string;
   resent?: boolean;
   resentToDate?: string;
+  isNotArrived?: boolean;
   originalQty?: string;
   receivedQty?: string;
   remainingQty?: string;
@@ -138,3 +139,17 @@ export interface Quotation {
   approvedAt?: string;
   updatedAt?: string;
 }
+
+export interface TrashItem {
+  id: string;
+  type: "mergedInvoice" | "item" | "archive" | "report" | "quotation";
+  title: string;
+  data: any;
+  itemCount?: number;
+  deletedAt: string;
+  deletedTimestamp: number;
+  deletedBy: string;
+  warehouse?: string;
+  originalInvoiceNumber?: number;
+}
+

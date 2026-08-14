@@ -207,10 +207,24 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
     col.items.forEach((item, index) => {
       const warehouseTag = item.warehouse || col.title;
       const dupTag = item.duplicateNote ? ` <span class="dup-badge">🔄 مكرر</span>` : '';
-      const noteTag = item.note && item.note !== "-" ? ` <span class="item-note">(${item.note})</span>` : '';
+      
+      // Clean notes from any verbose auto-generated resend text
+      const cleanNote = (item.note || "")
+        .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+        .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
+        .replace(/[\(（]?\s*لم تصل[^\)）]*[\)）]?/g, "")
+        .trim();
+      const noteTag = cleanNote && cleanNote !== "-" ? ` <span class="item-note">(${cleanNote})</span>` : '';
+
+      // Clean fixed name from any accidental concatenated resend text
+      const cleanFixedName = (item.fixedName || item.description || "")
+        .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+        .trim();
+
       const displayTag = !warehouseTag.includes("النحاس") && !warehouseTag.includes("النادي") ? ` <span class="warehouse-tag">${warehouseTag}</span>` : '';
 
       const isPartial = item.hasPartialReceipt;
+      const isDelayedOrNotArrived = item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")));
       const partialPrintHtml = isPartial ? `
         <div style="font-size: ${normalFontSize - 2}px; font-weight: 800; color: #b00; margin-top: 1px;">
           (مطلوب: ${item.originalQty || item.company} | مستلم: ${item.receivedQty || "0"} | متبقي: ${item.remainingQty || "0"})
@@ -221,11 +235,14 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
         <tr>
           <td style="width: 6%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${index + 1 + col.startIndex}</td>
           <td style="width: 11%; text-align: center; font-weight: 900; color: #000000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
-          <td style="width: 77%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${item.fixedName}">
-            ${item.fixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
+          <td style="width: 71%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${cleanFixedName}">
+            ${cleanFixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
           </td>
-          <td style="width: 6%; text-align: center; padding: 1px 0; white-space: nowrap;">
-            <span class="print-checkbox"></span>
+          <td style="width: 12%; text-align: center; padding: 1px 1px; white-space: nowrap;">
+            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
+              <span class="print-checkbox"></span>
+              ${isDelayedOrNotArrived ? `<span class="not-arrived-tag">لم يصل</span>` : ''}
+            </div>
           </td>
         </tr>
       `;
@@ -247,8 +264,8 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                   <tr>
                       <th style="width: 6%; text-align: center; white-space: nowrap;">#</th>
                       <th style="width: 11%; text-align: center; white-space: nowrap;">العدد</th>
-                      <th style="width: 77%; text-align: right; padding-right: 4px; white-space: nowrap;">اسم الصنف والبيان</th>
-                      <th style="width: 6%; text-align: center; white-space: nowrap;">✓</th>
+                      <th style="width: 73%; text-align: right; padding-right: 4px; white-space: nowrap;">اسم الصنف والبيان</th>
+                      <th style="width: 10%; text-align: center; white-space: nowrap;">✓</th>
                   </tr>
               </thead>
               <tbody>
@@ -408,6 +425,20 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                   font-weight: bold;
                   color: #b00;
                   margin-right: 2px;
+              }
+              .not-arrived-tag {
+                  font-size: ${normalFontSize - 2.5}px;
+                  color: #b91c1c;
+                  background: #fee2e2;
+                  padding: 0.5px 2.5px;
+                  border-radius: 2px;
+                  border: 1px solid #f87171;
+                  font-weight: 900;
+                  display: inline-block;
+                  vertical-align: middle;
+                  margin-right: 2px;
+                  white-space: nowrap;
+                  line-height: 1.1;
               }
               .item-note {
                   font-size: ${normalFontSize - 1.5}px;
@@ -661,10 +692,24 @@ export function printMatrix(
     col.items.forEach((item, index) => {
       const warehouseTag = item.warehouse || col.title;
       const dupTag = item.duplicateNote ? ` <span class="dup-badge">🔄 مكرر</span>` : '';
-      const noteTag = item.note && item.note !== "-" ? ` <span class="item-note">(${item.note})</span>` : '';
+      
+      // Clean notes from any verbose auto-generated resend text
+      const cleanNote = (item.note || "")
+        .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+        .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
+        .replace(/[\(（]?\s*لم تصل[^\)）]*[\)）]?/g, "")
+        .trim();
+      const noteTag = cleanNote && cleanNote !== "-" ? ` <span class="item-note">(${cleanNote})</span>` : '';
+
+      // Clean fixed name from any accidental concatenated resend text
+      const cleanFixedName = (item.fixedName || item.description || "")
+        .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+        .trim();
+
       const displayTag = !warehouseTag.includes("النحاس") && !warehouseTag.includes("النادي") ? ` <span class="warehouse-tag">${warehouseTag}</span>` : '';
 
       const isPartial = item.hasPartialReceipt;
+      const isDelayedOrNotArrived = item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")));
       const partialPrintHtml = isPartial ? `
         <div style="font-size: ${matrixFontSize - 2}px; font-weight: 800; color: #b00; margin-top: 1px;">
           (مطلوب: ${item.originalQty || item.company} | مستلم: ${item.receivedQty || "0"} | متبقي: ${item.remainingQty || "0"})
@@ -673,13 +718,16 @@ export function printMatrix(
 
       rowsHtml += `
         <tr>
-          <td style="width: 10%; text-align: center;">${index + 1 + col.startIndex}</td>
-          <td style="width: 15%; text-align: center; font-weight: 800; color: #8b6b4d;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
-          <td style="width: 65%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${item.fixedName}">
-            ${item.fixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
+          <td style="width: 8%; text-align: center;">${index + 1 + col.startIndex}</td>
+          <td style="width: 14%; text-align: center; font-weight: 800; color: #8b6b4d;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
+          <td style="width: 65%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${cleanFixedName}">
+            ${cleanFixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
           </td>
-          <td style="width: 10%; text-align: center; padding: 1px 0;">
-            <span class="print-checkbox"></span>
+          <td style="width: 13%; text-align: center; padding: 1px 1px; white-space: nowrap;">
+            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
+              <span class="print-checkbox"></span>
+              ${isDelayedOrNotArrived ? `<span class="not-arrived-tag">لم يصل</span>` : ''}
+            </div>
           </td>
         </tr>
       `;
@@ -699,10 +747,10 @@ export function printMatrix(
           <table>
               <thead>
                   <tr>
-                      <th style="width: 10%;">#</th>
-                      <th style="width: 15%;">العدد</th>
-                      <th style="width: 65%;">اسم الصنف والبيان</th>
-                      <th style="width: 10%;">✓</th>
+                      <th style="width: 8%;">#</th>
+                      <th style="width: 14%;">العدد</th>
+                      <th style="width: 66%;">اسم الصنف والبيان</th>
+                      <th style="width: 12%;">✓</th>
                   </tr>
               </thead>
               <tbody>
@@ -886,6 +934,20 @@ export function printMatrix(
                   font-weight: bold;
                   color: #b00;
                   margin-right: 2px;
+              }
+              .not-arrived-tag {
+                  font-size: ${matrixFontSize - 2.5}px;
+                  color: #b91c1c;
+                  background: #fee2e2;
+                  padding: 0.5px 2.5px;
+                  border-radius: 2px;
+                  border: 1px solid #f87171;
+                  font-weight: 900;
+                  display: inline-block;
+                  vertical-align: middle;
+                  margin-right: 2px;
+                  white-space: nowrap;
+                  line-height: 1.1;
               }
               .item-note {
                   font-size: ${matrixFontSize - 1.5}px;

@@ -52,6 +52,7 @@ export const ALL_SYSTEM_PERMISSIONS = [
   { id: "quotations", name: "📋 فواتير عروض الأسعار" },
   { id: "reports", name: "📄 التقارير اليومية" },
   { id: "archive", name: "📦 الأرشيف العام للفواتير" },
+  { id: "trash", name: "🗑️ سلة المحذوفات" },
   { id: "settings", name: "⚙️ الإعدادات المتقدمة" },
   { id: "privacy-policy", name: "📄 سياسة الخصوصية" }
 ];
