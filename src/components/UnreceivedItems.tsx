@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { User, Item, MergedInvoice } from "../types";
 import { printInvoice } from "../utils/print";
-import { compareDatesDescending } from "../utils/date";
+import { compareDatesDescending, parseArabicOrStandardDate } from "../utils/date";
 
 interface UnreceivedItemsProps {
   currentUser: User;
@@ -9,6 +9,10 @@ interface UnreceivedItemsProps {
   warehouseFilter: string | null; // Null means manager (all), non-null means a specific warehouse
   onUpdateItemDeliveryStatus?: (invoiceId: string, itemId: string, status: "received" | "delayed") => void;
   onResendUnreceivedItems?: (itemsToResend: Item[], defaultWhName?: string) => void;
+  onDeleteMergedInvoice?: (invoiceId: string) => void;
+  onDeleteMergedItem?: (invoiceId: string, itemId: string) => void;
+  onEditMergedItem?: (invoiceId: string, item: Item) => void;
+  onAddItemToApprovedInvoice?: (invoiceId: string, itemData: any) => void;
 }
 
 export default function UnreceivedItems({
@@ -16,15 +20,32 @@ export default function UnreceivedItems({
   mergedInvoices,
   warehouseFilter,
   onUpdateItemDeliveryStatus,
-  onResendUnreceivedItems
+  onResendUnreceivedItems,
+  onDeleteMergedInvoice,
+  onDeleteMergedItem,
+  onEditMergedItem,
+  onAddItemToApprovedInvoice
 }: UnreceivedItemsProps) {
-  // Filter and group unreceived items from approved invoices
-  // Approved invoices are those with status "approved" or "auto_approved"
-  const approvedInvoices = mergedInvoices.filter(
-    (m) => m.status === "approved" || m.status === "auto_approved"
-  );
+  // Filter state
+  const [selectedWarehouse, setSelectedWarehouse] = useState<string>(warehouseFilter || "all");
+  const [dateFilterMode, setDateFilterMode] = useState<"all" | "today" | "week" | "month" | "specific">("all");
+  const [selectedSpecificDate, setSelectedSpecificDate] = useState<string>("");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Grouping by Date and Invoice
+  // Add Item Modal state
+  const [addItemModalInvoiceId, setAddItemModalInvoiceId] = useState<string | null>(null);
+  const [modalWarehouse, setModalWarehouse] = useState("مخزن النحاس");
+  const [modalCustomWarehouse, setModalCustomWarehouse] = useState("");
+  const [modalQty, setModalQty] = useState("");
+  const [modalFixed, setModalFixed] = useState("");
+  const [modalDesc, setModalDesc] = useState("");
+  const [modalNote, setModalNote] = useState("");
+
+  const isManager = currentUser.role === "مدير";
+
+  // Grouping by Date and Invoice interface
   interface InvoiceGroup {
     id: string;
     invoiceNumber: number;
@@ -35,47 +56,154 @@ export default function UnreceivedItems({
     recorder: string;
   }
 
-  const groups: InvoiceGroup[] = [];
+  // Extract all approved invoices
+  const approvedInvoices = useMemo(() => {
+    return mergedInvoices.filter(
+      (m) => m.status === "approved" || m.status === "auto_approved"
+    );
+  }, [mergedInvoices]);
 
-  approvedInvoices.forEach((inv) => {
-    // Filter items in this invoice that are unreceived or have partial remaining quantities
-    const unreceivedItems = inv.items.filter((item) => {
-      // Hide items that have already been resent to manager to prevent clutter/confusion
-      if (item.resent) return false;
+  // Extract list of all unique warehouses and dates for dropdown options
+  const { allWarehouses, allDates } = useMemo(() => {
+    const whSet = new Set<string>();
+    const dateSet = new Set<string>();
 
-      // If there is a warehouse filter, only show items belonging to that warehouse
-      if (warehouseFilter && (item.warehouse || "").trim() !== warehouseFilter.trim()) {
-        return false;
-      }
-
-      const isReceived = item.deliveryStatus === "received";
-      const isPartialWithRemaining = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
-
-      // It is unreceived if:
-      // 1. It is not marked as received (pending or delayed)
-      // 2. OR it was received partially but still has a remaining quantity
-      return !isReceived || isPartialWithRemaining;
+    approvedInvoices.forEach((inv) => {
+      if (inv.date) dateSet.add(inv.date.trim());
+      inv.items.forEach((item) => {
+        if (item.warehouse && item.warehouse.trim()) {
+          whSet.add(item.warehouse.trim());
+        }
+      });
     });
 
-    if (unreceivedItems.length > 0) {
-      groups.push({
-        id: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        date: inv.date,
-        time: inv.time,
-        items: unreceivedItems,
-        warehouses: Array.from(new Set(unreceivedItems.map((it) => it.warehouse || ""))),
-        recorder: inv.status === "auto_approved" ? "نظام الترحيل التلقائي" : "المدير"
-      });
-    }
-  });
+    return {
+      allWarehouses: Array.from(whSet).sort(),
+      allDates: Array.from(dateSet).sort((a, b) => {
+        const dA = parseArabicOrStandardDate(a);
+        const dB = parseArabicOrStandardDate(b);
+        return dB.getTime() - dA.getTime();
+      })
+    };
+  }, [approvedInvoices]);
 
-  // Sort groups by date descending, then invoice number descending
-  groups.sort((a, b) => {
-    const cmp = compareDatesDescending(a, b);
-    if (cmp !== 0) return cmp;
-    return b.invoiceNumber - a.invoiceNumber;
-  });
+  // Today reference date for relative filtering
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+
+  // Process and filter groups
+  const groups: InvoiceGroup[] = useMemo(() => {
+    const result: InvoiceGroup[] = [];
+
+    approvedInvoices.forEach((inv) => {
+      // 1. Date Filtering
+      const invDateObj = parseArabicOrStandardDate(inv.date);
+      const invTime = invDateObj.getTime();
+
+      if (dateFilterMode === "today") {
+        if (invTime < todayStart || invTime >= todayStart + oneDayMs) {
+          return;
+        }
+      } else if (dateFilterMode === "week") {
+        if (invTime < todayStart - 7 * oneDayMs) {
+          return;
+        }
+      } else if (dateFilterMode === "month") {
+        if (invTime < todayStart - 30 * oneDayMs) {
+          return;
+        }
+      } else if (dateFilterMode === "specific") {
+        if (selectedSpecificDate && inv.date.trim() !== selectedSpecificDate.trim()) {
+          return;
+        }
+        if (customStartDate) {
+          const startObj = new Date(customStartDate).setHours(0, 0, 0, 0);
+          if (invTime < startObj) return;
+        }
+        if (customEndDate) {
+          const endObj = new Date(customEndDate).setHours(23, 59, 59, 999);
+          if (invTime > endObj) return;
+        }
+      }
+
+      // 2. Filter items in this invoice
+      const effectiveWh = warehouseFilter || (selectedWarehouse !== "all" ? selectedWarehouse : null);
+
+      const unreceivedItems = inv.items.filter((item) => {
+        // Hide items that have already been resent to manager
+        if (item.resent) return false;
+
+        // Warehouse filter
+        if (effectiveWh && (item.warehouse || "").trim() !== effectiveWh.trim()) {
+          return false;
+        }
+
+        // Search query filter (item name, description, note, or invoice number)
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim();
+          const matchesName = (item.fixedName || "").toLowerCase().includes(q);
+          const matchesDesc = (item.description || "").toLowerCase().includes(q);
+          const matchesNote = (item.note || "").toLowerCase().includes(q);
+          const matchesWh = (item.warehouse || "").toLowerCase().includes(q);
+          const matchesInv = String(inv.invoiceNumber).includes(q);
+          if (!matchesName && !matchesDesc && !matchesNote && !matchesWh && !matchesInv) {
+            return false;
+          }
+        }
+
+        const isReceived = item.deliveryStatus === "received";
+        const isPartialWithRemaining = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
+
+        return !isReceived || isPartialWithRemaining;
+      });
+
+      if (unreceivedItems.length > 0) {
+        result.push({
+          id: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          date: inv.date,
+          time: inv.time,
+          items: unreceivedItems,
+          warehouses: Array.from(new Set(unreceivedItems.map((it) => it.warehouse || ""))),
+          recorder: inv.status === "auto_approved" ? "نظام الترحيل التلقائي" : "المدير"
+        });
+      }
+    });
+
+    // Sort groups by date descending, then invoice number descending
+    result.sort((a, b) => {
+      const cmp = compareDatesDescending(a, b);
+      if (cmp !== 0) return cmp;
+      return b.invoiceNumber - a.invoiceNumber;
+    });
+
+    return result;
+  }, [
+    approvedInvoices,
+    dateFilterMode,
+    selectedSpecificDate,
+    customStartDate,
+    customEndDate,
+    warehouseFilter,
+    selectedWarehouse,
+    searchQuery,
+    todayStart
+  ]);
+
+  // Overall statistics
+  const totalUnreceivedItemsCount = useMemo(() => {
+    return groups.reduce((acc, g) => acc + g.items.length, 0);
+  }, [groups]);
+
+  const totalUnreceivedQuantitySum = useMemo(() => {
+    return groups.reduce((acc, g) => {
+      return acc + g.items.reduce((sum, it) => {
+        const q = it.hasPartialReceipt && it.remainingQty ? parseFloat(it.remainingQty) : parseFloat(it.company || "1");
+        return sum + (isNaN(q) ? 1 : q);
+      }, 0);
+    }, 0);
+  }, [groups]);
 
   // Track expanded groups
   const [expandedGroups, setExpandedGroups] = useState<{ [key: string]: boolean }>({});
@@ -87,11 +215,54 @@ export default function UnreceivedItems({
     }));
   };
 
+  const expandAll = () => {
+    const newExpanded: { [key: string]: boolean } = {};
+    groups.forEach((g) => {
+      newExpanded[g.id] = true;
+    });
+    setExpandedGroups(newExpanded);
+  };
+
+  const collapseAll = () => {
+    setExpandedGroups({});
+  };
+
+  const resetFilters = () => {
+    setSelectedWarehouse(warehouseFilter || "all");
+    setDateFilterMode("all");
+    setSelectedSpecificDate("");
+    setCustomStartDate("");
+    setCustomEndDate("");
+    setSearchQuery("");
+  };
+
+  const isFilterActive =
+    (selectedWarehouse !== "all" && !warehouseFilter) ||
+    dateFilterMode !== "all" ||
+    selectedSpecificDate !== "" ||
+    customStartDate !== "" ||
+    customEndDate !== "" ||
+    searchQuery.trim() !== "";
+
   const handlePrintGroup = (group: InvoiceGroup) => {
-    const title = warehouseFilter 
-      ? `النواقص غير المستلمة - ${warehouseFilter} (${group.date})`
+    const effectiveWh = warehouseFilter || (selectedWarehouse !== "all" ? selectedWarehouse : null);
+    const title = effectiveWh 
+      ? `النواقص غير المستلمة - ${effectiveWh} (${group.date})`
       : `النواقص غير المستلمة - جميع المخازن (${group.date})`;
-    printInvoice(group.items, title, warehouseFilter, currentUser.displayName || currentUser.username);
+    printInvoice(group.items, title, effectiveWh, currentUser.displayName || currentUser.username);
+  };
+
+  const handlePrintAllFiltered = () => {
+    const allFilteredItems = groups.flatMap((g) => g.items);
+    if (allFilteredItems.length === 0) {
+      alert("⚠️ لا توجد بنود مطابقة للطباعة");
+      return;
+    }
+    const effectiveWh = warehouseFilter || (selectedWarehouse !== "all" ? selectedWarehouse : null);
+    const title = effectiveWh 
+      ? `تقرير النواقص غير المستلمة المفلترة - ${effectiveWh}`
+      : "تقرير النواقص غير المستلمة المفلترة - جميع المخازن";
+    printInvoice(allFilteredItems, title, effectiveWh, currentUser.displayName || currentUser.username);
   };
 
   return (
@@ -109,8 +280,184 @@ export default function UnreceivedItems({
             }
           </p>
         </div>
-        <div className="bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 font-extrabold text-xs p-2.5 px-4 rounded-xl border border-red-100 dark:border-red-900/30">
-          إجمالي الفواتير المعلقة: {groups.length}
+
+        {/* Quick Stats Badges */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 font-extrabold text-xs p-2.5 px-4 rounded-xl border border-red-100 dark:border-red-900/30 flex items-center gap-1.5">
+            <span>📋 الفواتير:</span>
+            <span className="text-sm font-black">{groups.length}</span>
+          </div>
+          <div className="bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 font-extrabold text-xs p-2.5 px-4 rounded-xl border border-amber-100 dark:border-amber-900/30 flex items-center gap-1.5">
+            <span>📦 البنود المعلقة:</span>
+            <span className="text-sm font-black">{totalUnreceivedItemsCount}</span>
+          </div>
+          <div className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-extrabold text-xs p-2.5 px-4 rounded-xl border border-[#8b6b4d]/20 flex items-center gap-1.5">
+            <span>🔢 إجمالي الكميات:</span>
+            <span className="text-sm font-black">{totalUnreceivedQuantitySum}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* FILTER CONTROLS BAR */}
+      <div className="bg-white dark:bg-[#1a1a1a] p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 border-b border-gray-100 dark:border-gray-800 pb-3">
+          <div className="flex items-center gap-2 text-sm font-bold text-gray-800 dark:text-gray-200">
+            <span>🔍 أدوات التصفية والفلترة الذكية</span>
+            {isFilterActive && (
+              <span className="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                فلترة نشطة
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isFilterActive && (
+              <button
+                onClick={resetFilters}
+                className="text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40 p-1.5 px-3 rounded-lg transition-all cursor-pointer flex items-center gap-1"
+              >
+                🔄 إلغاء التصفية
+              </button>
+            )}
+            <button
+              onClick={expandAll}
+              className="text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 p-1.5 px-2.5 rounded-lg transition-all cursor-pointer"
+            >
+              ➕ توسيع الكل
+            </button>
+            <button
+              onClick={collapseAll}
+              className="text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 p-1.5 px-2.5 rounded-lg transition-all cursor-pointer"
+            >
+              ➖ طي الكل
+            </button>
+            {groups.length > 0 && (
+              <button
+                onClick={handlePrintAllFiltered}
+                className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-bold p-1.5 px-3 rounded-lg transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+              >
+                🖨️ طباعة المفلتر
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Filter Inputs Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* 1. Filter by Warehouse */}
+          {!warehouseFilter ? (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                🏢 تصفية حسب المخزن:
+              </label>
+              <select
+                value={selectedWarehouse}
+                onChange={(e) => setSelectedWarehouse(e.target.value)}
+                className="p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-xs font-semibold text-gray-800 dark:text-gray-200 focus:outline-[#8b6b4d] transition-all"
+              >
+                <option value="all">📍 جميع المخازن ({allWarehouses.length})</option>
+                {allWarehouses.map((wh) => (
+                  <option key={wh} value={wh}>
+                    {wh}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                🏢 المخزن المعروض:
+              </label>
+              <div className="p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-100 dark:bg-gray-800 text-xs font-bold text-[#8b6b4d]">
+                📍 {warehouseFilter} (المخزن الحالي)
+              </div>
+            </div>
+          )}
+
+          {/* 2. Filter by Order Date Mode */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+              📅 نطاق تاريخ الطلب:
+            </label>
+            <select
+              value={dateFilterMode}
+              onChange={(e) => {
+                const mode = e.target.value as any;
+                setDateFilterMode(mode);
+                if (mode !== "specific") {
+                  setSelectedSpecificDate("");
+                  setCustomStartDate("");
+                  setCustomEndDate("");
+                }
+              }}
+              className="p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-xs font-semibold text-gray-800 dark:text-gray-200 focus:outline-[#8b6b4d] transition-all"
+            >
+              <option value="all">🗓️ جميع التواريخ</option>
+              <option value="today">⚡ طلبات اليوم فقط</option>
+              <option value="week">⏳ آخر 7 أيام</option>
+              <option value="month">📆 آخر 30 يوماً</option>
+              <option value="specific">🎯 اختيار تاريخ محدد / مخصص</option>
+            </select>
+          </div>
+
+          {/* 3. Specific Date Dropdown / Inputs (visible when specific mode is chosen) */}
+          {dateFilterMode === "specific" ? (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                🎯 اختر تاريخ الطلب:
+              </label>
+              {allDates.length > 0 ? (
+                <select
+                  value={selectedSpecificDate}
+                  onChange={(e) => setSelectedSpecificDate(e.target.value)}
+                  className="p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-xs font-semibold text-gray-800 dark:text-gray-200 focus:outline-[#8b6b4d] transition-all"
+                >
+                  <option value="">-- اختر من تواريخ الفواتير الموجودة --</option>
+                  {allDates.map((dt) => (
+                    <option key={dt} value={dt}>
+                      {dt}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-xs font-semibold text-gray-800 dark:text-gray-200 focus:outline-[#8b6b4d]"
+                />
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                🔎 بحث بالاسم أو الملاحظة:
+              </label>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ابحث عن صنف، مخزن، أو بيان..."
+                className="p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-xs font-semibold text-gray-800 dark:text-gray-200 focus:outline-[#8b6b4d]"
+              />
+            </div>
+          )}
+
+          {/* 4. Search input (or custom date range if specific date mode is on) */}
+          {dateFilterMode === "specific" ? (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                🔎 بحث بالاسم أو الملاحظة:
+              </label>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ابحث عن صنف، مخزن، أو بيان..."
+                className="p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-xs font-semibold text-gray-800 dark:text-gray-200 focus:outline-[#8b6b4d]"
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -118,9 +465,25 @@ export default function UnreceivedItems({
       <div className="space-y-4">
         {groups.length === 0 ? (
           <div className="bg-white dark:bg-[#1a1a1a] p-12 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 text-center">
-            <span className="text-5xl block mb-3">🎉</span>
-            <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-1">ممتاز! لا توجد بنود غير مستلمة</h3>
-            <p className="text-xs text-gray-400 dark:text-gray-500">تم استلام كافة البضائع والأصناف المعتمدة بنجاح تام.</p>
+            <span className="text-5xl block mb-3">
+              {isFilterActive ? "🔍" : "🎉"}
+            </span>
+            <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-1">
+              {isFilterActive ? "لا توجد نتائج مطابقة لخيارات الفلترة الحالية" : "ممتاز! لا توجد بنود غير مستلمة"}
+            </h3>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              {isFilterActive 
+                ? "جرب تغيير تاريخ الطلب، المخزن، أو مسح نص البحث لعرض بيانات أخرى."
+                : "تم استلام كافة البضائع والأصناف المعتمدة بنجاح تام."}
+            </p>
+            {isFilterActive && (
+              <button
+                onClick={resetFilters}
+                className="mt-3 bg-red-500 hover:bg-red-600 text-white font-bold text-xs py-2 px-4 rounded-xl transition-all cursor-pointer"
+              >
+                🔄 إعادة تعيين جميع الفلاتر
+              </button>
+            )}
           </div>
         ) : (
           groups.map((group, gIdx) => {
@@ -143,9 +506,9 @@ export default function UnreceivedItems({
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
                       <span>تاريخ الحفظ: {group.date} {group.time && `| ${group.time}`}</span>
-                      <span>المخزن: {warehouseFilter || "جميع المخازن"}</span>
+                      <span>المخزن: {warehouseFilter || (selectedWarehouse !== "all" ? selectedWarehouse : "جميع المخازن")}</span>
                       <span>المسجل: {group.recorder}</span>
-                      <span className="font-bold text-[#8b6b4d]">عدد البنود: {group.items.length} #{group.invoiceNumber}</span>
+                      <span className="font-bold text-[#8b6b4d]">عدد البنود المتبقية: {group.items.length}</span>
                     </div>
                     {!warehouseFilter && (
                       <div className="flex gap-1.5 mt-1 flex-wrap">
@@ -162,6 +525,31 @@ export default function UnreceivedItems({
                   </div>
                   
                   <div className="flex flex-wrap gap-2 w-full md:w-auto justify-end">
+                    {isManager && onAddItemToApprovedInvoice && (
+                      <button
+                        onClick={() => {
+                          setAddItemModalInvoiceId(group.id);
+                          setModalWarehouse(group.warehouses[0] || "مخزن النحاس");
+                          setModalQty("");
+                          setModalFixed("");
+                          setModalDesc("");
+                          setModalNote("");
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl cursor-pointer transition-all flex items-center gap-1 shadow-xs"
+                        title="إضافة بند جديد إلى هذه الفاتورة المدمجة"
+                      >
+                        ➕ إضافة صنف
+                      </button>
+                    )}
+                    {isManager && onDeleteMergedInvoice && (
+                      <button
+                        onClick={() => onDeleteMergedInvoice(group.id)}
+                        className="bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold p-2.5 px-3 rounded-xl cursor-pointer transition-all flex items-center gap-1 border border-red-200"
+                        title="حذف الفاتورة المدمجة بالكامل ونقلها لسلة المحذوفات"
+                      >
+                        🗑️ حذف الفاتورة
+                      </button>
+                    )}
                     {onResendUnreceivedItems && (
                       <button
                         onClick={() => onResendUnreceivedItems(group.items, group.warehouses[0])}
@@ -197,6 +585,7 @@ export default function UnreceivedItems({
                           <th className="p-3">اسم الصنف والبيان</th>
                           {!warehouseFilter && <th className="p-3 w-40">المستودع المعني</th>}
                           <th className="p-3 w-32 text-center">حالة الاستلام الحالية</th>
+                          {isManager && <th className="p-3 w-28 text-center">إجراءات المدير</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -297,6 +686,30 @@ export default function UnreceivedItems({
                                   </div>
                                 </div>
                               </td>
+                              {isManager && (
+                                <td className="p-3 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    {onEditMergedItem && (
+                                      <button
+                                        onClick={() => onEditMergedItem(group.id, item)}
+                                        className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-xs font-bold transition-all cursor-pointer border border-amber-200"
+                                        title="تعديل هذا البند"
+                                      >
+                                        ✏️ تعديل
+                                      </button>
+                                    )}
+                                    {onDeleteMergedItem && (
+                                      <button
+                                        onClick={() => onDeleteMergedItem(group.id, item.id)}
+                                        className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all cursor-pointer border border-red-200"
+                                        title="حذف هذا البند"
+                                      >
+                                        🗑️ حذف
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -309,6 +722,118 @@ export default function UnreceivedItems({
           })
         )}
       </div>
+
+      {/* Add Item to Merged Invoice Modal */}
+      {addItemModalInvoiceId && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[11500] p-4">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-[#d4b48c]/20 text-right animate-fade-in" dir="rtl">
+            <h3 className="text-lg font-bold text-[#8b6b4d] border-b pb-3 mb-4 flex items-center gap-2">
+              <span>➕ إضافة صنف جديد للفاتورة المدمجة</span>
+            </h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">🏢 المستودع المعني:</label>
+                <select
+                  value={modalWarehouse}
+                  onChange={(e) => setModalWarehouse(e.target.value)}
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-[#8b6b4d]"
+                >
+                  <option value="مخزن النحاس">مخزن النحاس</option>
+                  <option value="مخزن النادي">مخزن النادي</option>
+                  <option value="مخزن المدير">مخزن المدير</option>
+                  <option value="custom">مخزن آخر (إدخال يدوي)...</option>
+                </select>
+                {modalWarehouse === "custom" && (
+                  <input
+                    type="text"
+                    placeholder="اكتب اسم المخزن هنا"
+                    value={modalCustomWarehouse}
+                    onChange={(e) => setModalCustomWarehouse(e.target.value)}
+                    className="w-full mt-2 p-2.5 bg-white border border-[#8b6b4d] rounded-xl text-sm font-bold"
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">🔢 الكمية / العدد:</label>
+                <input
+                  type="text"
+                  placeholder="مثال: 10، 5 كرتونة"
+                  value={modalQty}
+                  onChange={(e) => setModalQty(e.target.value)}
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-[#8b6b4d]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">📝 اسم الصنف:</label>
+                <input
+                  type="text"
+                  placeholder="مثال: حبر طابعة، ورق A4"
+                  value={modalFixed}
+                  onChange={(e) => setModalFixed(e.target.value)}
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-[#8b6b4d]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">ℹ️ تفاصيل إضافية (اختياري):</label>
+                <input
+                  type="text"
+                  placeholder="التفاصيل والمواصفات"
+                  value={modalDesc}
+                  onChange={(e) => setModalDesc(e.target.value)}
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#8b6b4d]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">💬 ملاحظة خاصة (اختياري):</label>
+                <input
+                  type="text"
+                  placeholder="ملاحظات"
+                  value={modalNote}
+                  onChange={(e) => setModalNote(e.target.value)}
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#8b6b4d]"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={async () => {
+                  const finalWh = modalWarehouse === "custom" ? modalCustomWarehouse.trim() : modalWarehouse;
+                  if (!finalWh || !modalQty.trim() || !modalFixed.trim()) {
+                    alert("⚠️ يرجى تحديد المخزن وإدخال العدد واسم الصنف!");
+                    return;
+                  }
+                  if (onAddItemToApprovedInvoice && addItemModalInvoiceId) {
+                    await onAddItemToApprovedInvoice(addItemModalInvoiceId, {
+                      warehouse: finalWh,
+                      company: modalQty.trim(),
+                      fixedName: modalFixed.trim(),
+                      description: modalDesc.trim() || "-",
+                      note: modalNote.trim()
+                    });
+                  }
+                  setAddItemModalInvoiceId(null);
+                }}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                💾 إضافة الصنف للفاتورة
+              </button>
+              <button
+                onClick={() => setAddItemModalInvoiceId(null)}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

@@ -84,7 +84,7 @@ export function hasPermission(user: User | null, permission: string): boolean {
   }
 
   // A warehouse user ALWAYS has access to their own warehouse section
-  if (permission === "warehouse-unreceived" && (user.warehouse || user.role === "مخزن")) {
+  if ((permission === "warehouse-unreceived" || permission === "warehouse-received") && (user.warehouse || user.role === "مخزن")) {
     return true;
   }
   if (permission === "warehouse-custom" && user.warehouse) {
@@ -947,6 +947,95 @@ export default function App() {
       });
       alert("🗑️ تم حذف البند ونقله إلى سلة المحذوفات بنجاح!");
     }
+  };
+
+  const handleDeleteMergedInvoiceById = async (invoiceId: string) => {
+    const invoice = mergedInvoices.find(m => m.id === invoiceId);
+    if (!invoice) return;
+
+    if (confirm(`تأكيد حذف الفاتورة المدمجة #${invoice.invoiceNumber} (${invoice.date}) ونقلها إلى سلة المحذوفات؟`)) {
+      const trashRecord: TrashItem = {
+        id: "trash_merged_" + invoice.id + "_" + Date.now(),
+        type: "mergedInvoice",
+        title: `فاتورة مدمجة #${invoice.invoiceNumber} (${invoice.date})`,
+        data: invoice,
+        itemCount: invoice.items?.length || invoice.total || 0,
+        deletedAt: `${getToday()} - ${getNow()}`,
+        deletedTimestamp: Date.now(),
+        deletedBy: currentUser?.displayName || currentUser?.username || "المدير",
+        warehouse: invoice.warehouses?.join(" - ") || "جميع المستودعات",
+        originalInvoiceNumber: invoice.invoiceNumber
+      };
+
+      await moveToTrash(trashRecord);
+      await deleteMergedInvoice(invoice.id);
+      alert("🗑️ تم حذف الفاتورة المدمجة ونقلها إلى سلة المحذوفات بنجاح!");
+    }
+  };
+
+  const handleDeleteMergedItemById = async (invoiceId: string, itemId: string) => {
+    const inv = mergedInvoices.find(m => m.id === invoiceId || m.items.some(it => it.id === itemId));
+    if (!inv) return;
+    const itemIndex = inv.items.findIndex(it => it.id === itemId);
+    if (itemIndex === -1) return;
+    const item = inv.items[itemIndex];
+
+    if (!confirm(`هل تريد حذف البند "${item.fixedName || item.description}" ونقله إلى سلة المحذوفات؟`)) return;
+
+    const trashRecord: TrashItem = {
+      id: "trash_item_" + item.id + "_" + Date.now(),
+      type: "item",
+      title: `بند محذوف: ${item.fixedName || item.description}`,
+      data: item,
+      itemCount: 1,
+      deletedAt: `${getToday()} - ${getNow()}`,
+      deletedTimestamp: Date.now(),
+      deletedBy: currentUser?.displayName || currentUser?.username || "المدير",
+      warehouse: item.warehouse || inv.warehouses?.join(" - "),
+      originalInvoiceNumber: inv.invoiceNumber
+    };
+    await moveToTrash(trashRecord);
+
+    const updatedItems = [...inv.items];
+    updatedItems.splice(itemIndex, 1);
+
+    if (updatedItems.length === 0) {
+      await deleteMergedInvoice(inv.id);
+      alert("🗑️ تم نقل البند إلى سلة المحذوفات وحذف الفاتورة المدمجة لعدم احتوائها على بنود أخرى!");
+    } else {
+      await saveMergedInvoice({
+        ...inv,
+        items: updatedItems,
+        total: updatedItems.length
+      });
+      alert("🗑️ تم حذف البند ونقله إلى سلة المحذوفات بنجاح!");
+    }
+
+    const itInDb = items.find(i => i.id === itemId);
+    if (itInDb) {
+      await saveItem({
+        ...itInDb,
+        status: "deleted",
+        deletedAt: getFullDate(),
+        deletedFrom: inv.warehouses?.join(" - ") || "فاتورة مدمجة"
+      });
+    }
+  };
+
+  const handleEditMergedItemById = (invoiceId: string, item: Item) => {
+    const inv = mergedInvoices.find(m => m.id === invoiceId || m.items.some(it => it.id === item.id));
+    const itemIndex = inv ? inv.items.findIndex(it => it.id === item.id) : undefined;
+    setEditingItem({
+      id: item.id || "",
+      index: itemIndex,
+      parentId: inv ? inv.id : invoiceId,
+      parentType: "mergedInvoices",
+      company: item.company,
+      fixedName: item.fixedName || "",
+      description: item.description,
+      note: item.note || "",
+      warehouse: item.warehouse
+    });
   };
 
   const handleRestoreFromTrash = async (trashItem: TrashItem) => {
@@ -2056,6 +2145,7 @@ export default function App() {
             onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
             onRolloverUnreceivedItems={handleRolloverUnreceivedItems}
             onAddItemToApprovedInvoice={handleAddItemToApprovedInvoice}
+            onNavigateSection={(sec) => setActiveSection(sec)}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2135,30 +2225,251 @@ export default function App() {
           await handleConfirmPartialReceipt(invoiceId, item.id, qty, "0");
         };
 
+        const whDeliveryStats = (() => {
+          let delayedNotArrivedCount = 0;
+          let partialReceivedCount = 0;
+          let totalUnreceivedCount = 0;
+          let fullyReceivedCount = 0;
+          let totalUnreceivedQty = 0;
+          let totalPartialRemainingQty = 0;
+
+          approvedInvs.forEach((inv) => {
+            inv.items.forEach((it) => {
+              if (!(it.warehouse || "").trim().includes(whName.trim())) return;
+              if (it.resent) return;
+
+              const isDelayed = it.deliveryStatus === "delayed" || it.isNotArrived || (it.note && (it.note.includes("لم يصل") || it.note.includes("لم تصل")));
+              const isPartialWithRemaining = Boolean(it.hasPartialReceipt && it.remainingQty && it.remainingQty !== "0");
+              const isReceived = it.deliveryStatus === "received";
+
+              if (isDelayed) {
+                delayedNotArrivedCount++;
+              }
+
+              if (isPartialWithRemaining) {
+                partialReceivedCount++;
+                const rem = parseFloat(it.remainingQty || "0");
+                totalPartialRemainingQty += isNaN(rem) ? 0 : rem;
+              }
+
+              if (!isReceived || isPartialWithRemaining) {
+                totalUnreceivedCount++;
+                const q = isPartialWithRemaining ? parseFloat(it.remainingQty || "0") : parseFloat(it.company || "1");
+                totalUnreceivedQty += isNaN(q) ? 1 : q;
+              } else if (isReceived && !isPartialWithRemaining) {
+                fullyReceivedCount++;
+              }
+            });
+          });
+
+          return {
+            delayedNotArrivedCount,
+            partialReceivedCount,
+            totalUnreceivedCount,
+            fullyReceivedCount,
+            totalUnreceivedQty,
+            totalPartialRemainingQty
+          };
+        })();
+
         return (
           <div className="space-y-6">
             {/* Header with Warehouse Title */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div>
-                <h2 className="text-2xl font-black text-gray-800 border-r-4 border-[#8b6b4d] pr-3 flex items-center gap-2">
-                  <span>📦 {whName}</span>
-                </h2>
-                <p className="text-xs text-gray-500 mt-1">إدارة الطلبات، استلام البضائع، ومعالجة النواقص التي لم تصل.</p>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-4">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h2 className="text-2xl font-black text-gray-800 border-r-4 border-[#8b6b4d] pr-3 flex items-center gap-2">
+                    <span>📦 {whName}</span>
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-1">إدارة الطلبات، استلام البضائع، ومعالجة النواقص التي لم تصل.</p>
+                </div>
+
+                <div className="flex gap-2 text-xs flex-wrap">
+                  <button
+                    onClick={() => printInvoice(whItems, `نواقص ${whName}`, whName, currentUser.displayName || currentUser.username)}
+                    className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white p-2.5 px-4 rounded-xl font-bold cursor-pointer transition-all flex items-center gap-1.5 shadow-xs"
+                  >
+                    🖨️ طباعة النواقص النشطة
+                  </button>
+                  <button
+                    onClick={() => printMatrix(whItems, `مصفوفة ${whName}`, whName, undefined, currentUser.displayName || currentUser.username)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 px-4 rounded-xl font-bold cursor-pointer transition-all flex items-center gap-1.5 shadow-xs"
+                  >
+                    ⊞ طباعة المصفوفة
+                  </button>
+                </div>
               </div>
 
-              <div className="flex gap-2 text-xs">
-                <button
-                  onClick={() => printInvoice(whItems, `نواقص ${whName}`, whName, currentUser.displayName || currentUser.username)}
-                  className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white p-2.5 px-4 rounded-xl font-bold cursor-pointer transition-all flex items-center gap-1.5"
-                >
-                  🖨️ طباعة النواقص النشطة
-                </button>
-                <button
-                  onClick={() => printMatrix(whItems, `مصفوفة ${whName}`, whName, undefined, currentUser.displayName || currentUser.username)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 px-4 rounded-xl font-bold cursor-pointer transition-all flex items-center gap-1.5"
-                >
-                  ⊞ طباعة المصفوفة
-                </button>
+              {/* Custom Warehouses Selector if manager is browsing custom warehouses */}
+              {activeSection === "warehouse-custom" && isManager && (() => {
+                const customWhList = Array.from(new Set(
+                  (Object.values(users) as User[])
+                    .map(u => u.warehouse)
+                    .filter(wh => wh && wh !== "مخزن النحاس" && wh !== "مخزن النادي" && wh !== "مخزن المدير")
+                )) as string[];
+
+                if (customWhList.length <= 1) return null;
+
+                return (
+                  <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-gray-100">
+                    <span className="text-xs font-bold text-gray-500">التنقل بين المستودعات المخصصة:</span>
+                    {customWhList.map(cWh => (
+                      <button
+                        key={cWh}
+                        onClick={() => setSelectedCustomWarehouse(cWh)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                          whName === cWh
+                            ? "bg-[#8b6b4d] text-white shadow-xs"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                      >
+                        <span>📦</span>
+                        <span>{cWh}</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Warehouse Delivery & Partial Goods Status Cards */}
+            <div className="bg-gradient-to-r from-[#8b6b4d]/10 via-[#8b6b4d]/5 to-transparent p-5 rounded-2xl border border-[#8b6b4d]/20 space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                  <h3 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
+                    <span>📊 مؤشرات الاستلام وحالة البضاعة في {whName}</span>
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    متابعة دقيقة للأصناف المتأخرة، الاستلام الجزئي، والمستلمة بالكامل الخاصة بمستودع ({whName}) فقط
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setWhActiveTab("not-arrived")}
+                    className="bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1 border border-red-200 shadow-xs"
+                    title="الانتقال إلى قسم الأصناف التي لم تصل"
+                  >
+                    <span>🚨 قسم لم تصل ({whDeliveryStats.delayedNotArrivedCount})</span>
+                  </button>
+                  <button
+                    onClick={() => setWhActiveTab("received")}
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1 border border-emerald-200 shadow-xs"
+                    title="الانتقال إلى قسم الأصناف المستلمة"
+                  >
+                    <span>✅ قسم المستلمات ({whDeliveryStats.fullyReceivedCount})</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Card 1: Delayed / Not Arrived */}
+                <div className="bg-gradient-to-br from-red-50/70 to-red-100/40 p-4 rounded-xl border border-red-200/80 shadow-xs flex flex-col justify-between space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="text-xs font-black text-red-700 uppercase tracking-wide flex items-center gap-1">
+                        <span>🚨</span> أصناف لم تصل (Delayed)
+                      </span>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        أصناف معلقة أو لم يتم توريدها إلى {whName}
+                      </p>
+                    </div>
+                    <span className="text-xs font-extrabold bg-red-600 text-white px-2 py-0.5 rounded-md">
+                      معلقة
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between pt-1">
+                    <div>
+                      <div className="text-3xl font-black text-red-700">
+                        {whDeliveryStats.delayedNotArrivedCount > 0 ? whDeliveryStats.delayedNotArrivedCount : whDeliveryStats.totalUnreceivedCount}
+                      </div>
+                      <div className="text-[11px] text-red-600 font-bold mt-0.5">
+                        {whDeliveryStats.delayedNotArrivedCount > 0
+                          ? `منها ${whDeliveryStats.totalUnreceivedCount} بند معلق كلياً`
+                          : `إجمالي المعلق: ${whDeliveryStats.totalUnreceivedQty} وحدة`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setWhActiveTab("not-arrived")}
+                      className="text-xs font-bold text-red-700 hover:text-red-900 underline flex items-center gap-1 cursor-pointer bg-red-100/50 hover:bg-red-100 px-2.5 py-1 rounded-lg transition-all"
+                    >
+                      <span>عرض القائمة</span>
+                      <span>←</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card 2: Partially Received */}
+                <div className="bg-gradient-to-br from-amber-50/70 to-amber-100/40 p-4 rounded-xl border border-amber-200/80 shadow-xs flex flex-col justify-between space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="text-xs font-black text-amber-800 uppercase tracking-wide flex items-center gap-1">
+                        <span>📦</span> أصناف مستلمة جزئياً
+                      </span>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        تم استلام جزء وتبقى كمية معلقة بالمستودع
+                      </p>
+                    </div>
+                    <span className="text-xs font-extrabold bg-amber-500 text-white px-2 py-0.5 rounded-md">
+                      جزئي
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between pt-1">
+                    <div>
+                      <div className="text-3xl font-black text-amber-800">
+                        {whDeliveryStats.partialReceivedCount}
+                      </div>
+                      <div className="text-[11px] text-amber-700 font-bold mt-0.5">
+                        {whDeliveryStats.partialReceivedCount > 0
+                          ? `المتبقي: ${whDeliveryStats.totalPartialRemainingQty} وحدة مطلوبة`
+                          : "لا توجد معلقات جزئية"}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setWhActiveTab("not-arrived")}
+                      className="text-xs font-bold text-amber-800 hover:text-amber-950 underline flex items-center gap-1 cursor-pointer bg-amber-100/50 hover:bg-amber-100 px-2.5 py-1 rounded-lg transition-all"
+                    >
+                      <span>عرض المتبقي</span>
+                      <span>←</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card 3: Fully Received */}
+                <div className="bg-gradient-to-br from-emerald-50/70 to-emerald-100/40 p-4 rounded-xl border border-emerald-200/80 shadow-xs flex flex-col justify-between space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="text-xs font-black text-emerald-800 uppercase tracking-wide flex items-center gap-1">
+                        <span>✅</span> أصناف مستلمة بالكامل
+                      </span>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        تم تأكيد وصولها واستلامها 100% في {whName}
+                      </p>
+                    </div>
+                    <span className="text-xs font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-md">
+                      مكتمل
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between pt-1">
+                    <div>
+                      <div className="text-3xl font-black text-emerald-800">
+                        {whDeliveryStats.fullyReceivedCount}
+                      </div>
+                      <div className="text-[11px] text-emerald-700 font-bold mt-0.5">
+                        بند معتمد مكتمل الاستلام
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setWhActiveTab("received")}
+                      className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline flex items-center gap-1 cursor-pointer bg-emerald-100/50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-all"
+                    >
+                      <span>عرض السجل</span>
+                      <span>←</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2287,28 +2598,42 @@ export default function App() {
 
                               {isExpanded && (
                                 <div className="p-4 border-t bg-white space-y-3">
-                                  <div className="flex justify-between items-center pb-2 border-b">
+                                  <div className="flex justify-between items-center pb-2 border-b flex-wrap gap-2">
                                     <span className="text-xs font-bold text-gray-500">تفاصيل أصناف الفاتورة:</span>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        printInvoice(whInvoiceItems, `فاتورة رقم ${inv.invoiceNumber} - ${inv.date}`, whName, currentUser.displayName || currentUser.username);
-                                      }}
-                                      className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-[11px] font-bold p-1.5 px-3 rounded-lg cursor-pointer"
-                                    >
-                                      🖨️ طباعة هذه الفاتورة
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      {isManager && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteMergedInvoiceById(inv.id);
+                                          }}
+                                          className="bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-bold p-1.5 px-3 rounded-lg cursor-pointer border border-red-200"
+                                          title="حذف الفاتورة بالكامل"
+                                        >
+                                          🗑️ حذف الفاتورة
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          printInvoice(whInvoiceItems, `فاتورة رقم ${inv.invoiceNumber} - ${inv.date}`, whName, currentUser.displayName || currentUser.username);
+                                        }}
+                                        className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-[11px] font-bold p-1.5 px-3 rounded-lg cursor-pointer"
+                                      >
+                                        🖨️ طباعة هذه الفاتورة
+                                      </button>
+                                    </div>
                                   </div>
                                   <div className="space-y-2">
                                     {whInvoiceItems.map((item, idx) => (
-                                      <div key={`${inv.id}-${item.id || idx}-${idx}`} className="p-2.5 bg-gray-50 rounded-lg flex justify-between items-center text-xs">
+                                      <div key={`${inv.id}-${item.id || idx}-${idx}`} className="p-2.5 bg-gray-50 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
                                         <div>
                                           <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2 py-0.5 rounded text-[10px] ml-2">مطلوب: {item.company}</span>
                                           <strong className="text-gray-800">{item.fixedName}</strong>
                                           <span className="text-gray-500 mr-2">{item.description && item.description !== "-" && `(${item.description})`}</span>
                                           {item.note && <p className="text-[10px] text-gray-400 mt-1">📝 ملاحظة: {item.note}</p>}
                                         </div>
-                                        <div>
+                                        <div className="flex items-center gap-2">
                                           {item.deliveryStatus === "received" ? (
                                             <span className="text-emerald-600 font-extrabold text-[10px]">✓ تم الاستلام بالكامل</span>
                                           ) : item.deliveryStatus === "delayed" ? (
@@ -2317,6 +2642,24 @@ export default function App() {
                                             <span className="text-amber-600 font-extrabold text-[10px]">🟡 تم الاستلام جزئياً (المتبقي: {item.remainingQty})</span>
                                           ) : (
                                             <span className="text-gray-400 font-bold text-[10px]">⏳ بانتظار الشحن والاستلام</span>
+                                          )}
+                                          {isManager && (
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                onClick={() => handleEditMergedItemById(inv.id, item)}
+                                                className="bg-amber-50 hover:bg-amber-100 text-amber-700 p-1 px-2 rounded text-[10px] font-bold border border-amber-200 cursor-pointer"
+                                                title="تعديل هذا البند"
+                                              >
+                                                ✏️ تعديل
+                                              </button>
+                                              <button
+                                                onClick={() => handleDeleteMergedItemById(inv.id, item.id)}
+                                                className="bg-red-50 hover:bg-red-100 text-red-600 p-1 px-2 rounded text-[10px] font-bold border border-red-200 cursor-pointer"
+                                                title="حذف هذا البند"
+                                              >
+                                                🗑️ حذف
+                                              </button>
+                                            </div>
                                           )}
                                         </div>
                                       </div>
@@ -2391,10 +2734,22 @@ export default function App() {
 
                       return (
                         <div key={`${inv.id}-${invIdx}`} className={`p-4 rounded-xl border transition-all ${pendingCount > 0 ? "bg-amber-50/15 border-amber-200" : "bg-emerald-50/15 border-emerald-100"}`}>
-                          <div className="flex justify-between items-center mb-3">
-                            <div>
+                          <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <strong className="text-sm font-bold text-[#1e2b3c]">📄 بيان النواقص المعتمد رقم #{inv.invoiceNumber}</strong>
                               <span className="text-xs text-gray-400 mr-2">التاريخ: {inv.date}</span>
+                              {isManager && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteMergedInvoiceById(inv.id);
+                                  }}
+                                  className="bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-bold p-1 px-2.5 rounded-lg cursor-pointer border border-red-200"
+                                  title="حذف الفاتورة بالكامل (صلاحية المدير)"
+                                >
+                                  🗑️ حذف الفاتورة
+                                </button>
+                              )}
                             </div>
                             <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${pendingCount > 0 ? "bg-amber-100 text-amber-800 animate-pulse" : "bg-emerald-100 text-emerald-800"}`}>
                               {pendingCount > 0 ? `⏳ بانتظار استلام (${pendingCount}) صنف` : "✅ تم استلام جميع الأصناف"}
@@ -2431,7 +2786,7 @@ export default function App() {
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                                  <div className="flex items-center gap-2 shrink-0 self-end md:self-center flex-wrap">
                                     {isReceived ? (
                                       <div className="flex items-center gap-1.5">
                                         <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold text-[10px]">🟢 تم الاستلام في {item.deliveredAt || inv.date}</span>
@@ -2471,6 +2826,25 @@ export default function App() {
                                           title="لم يصل بعد"
                                         >
                                           ✖ لم يصل
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {isManager && (
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          onClick={() => handleEditMergedItemById(inv.id, item)}
+                                          className="bg-amber-50 hover:bg-amber-100 text-amber-700 p-1 px-2 rounded text-[10px] font-bold border border-amber-200 cursor-pointer"
+                                          title="تعديل هذا البند"
+                                        >
+                                          ✏️ تعديل
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteMergedItemById(inv.id, item.id)}
+                                          className="bg-red-50 hover:bg-red-100 text-red-600 p-1 px-2 rounded text-[10px] font-bold border border-red-200 cursor-pointer"
+                                          title="حذف هذا البند"
+                                        >
+                                          🗑️ حذف
                                         </button>
                                       </div>
                                     )}
@@ -2518,9 +2892,23 @@ export default function App() {
                   <div className="space-y-4">
                     {notArrivedGroups.map(({ inv, items: groupItems }, gIdx) => (
                       <div key={`${inv.id}-${gIdx}`} className="bg-white p-6 rounded-2xl shadow-sm border border-red-100">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-3 mb-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-3 mb-4 flex-wrap">
                           <div>
-                            <strong className="text-sm font-bold text-red-900">📄 فواتير نواقص معلقة من الفاتورة رقم #{inv.invoiceNumber}</strong>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <strong className="text-sm font-bold text-red-900">📄 فواتير نواقص معلقة من الفاتورة رقم #{inv.invoiceNumber}</strong>
+                              {isManager && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteMergedInvoiceById(inv.id);
+                                  }}
+                                  className="bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-bold p-1 px-2.5 rounded-lg cursor-pointer border border-red-200"
+                                  title="حذف الفاتورة بالكامل (صلاحية المدير)"
+                                >
+                                  🗑️ حذف الفاتورة
+                                </button>
+                              )}
+                            </div>
                             <p className="text-xs text-gray-400 mt-0.5">تاريخ الفاتورة الأساسية: {inv.date} | عدد البنود المتبقية: {groupItems.length}</p>
                           </div>
                           <button
@@ -2552,12 +2940,32 @@ export default function App() {
                                   {item.note && <p className="text-[10px] text-gray-400 mt-1">📝 ملاحظة: {item.note}</p>}
                                 </div>
 
-                                <button
-                                  onClick={() => handleResendNotArrivedItems([item])}
-                                  className="bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-red-700 font-bold py-1 px-3 rounded-md text-[10px] cursor-pointer transition-all"
-                                >
-                                  إعادة إرسال هذا البند فقط 🔄
-                                </button>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <button
+                                    onClick={() => handleResendNotArrivedItems([item])}
+                                    className="bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-red-700 font-bold py-1 px-3 rounded-md text-[10px] cursor-pointer transition-all"
+                                  >
+                                    إعادة إرسال هذا البند فقط 🔄
+                                  </button>
+                                  {isManager && (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => handleEditMergedItemById(inv.id, item)}
+                                        className="bg-amber-50 hover:bg-amber-100 text-amber-700 p-1 px-2 rounded text-[10px] font-bold border border-amber-200 cursor-pointer"
+                                        title="تعديل هذا البند"
+                                      >
+                                        ✏️ تعديل
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteMergedItemById(inv.id, item.id)}
+                                        className="bg-red-50 hover:bg-red-100 text-red-600 p-1 px-2 rounded text-[10px] font-bold border border-red-200 cursor-pointer"
+                                        title="حذف هذا البند"
+                                      >
+                                        🗑️ حذف
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
@@ -2758,6 +3166,10 @@ export default function App() {
             warehouseFilter={null}
             onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
             onResendUnreceivedItems={handleResendNotArrivedItems}
+            onDeleteMergedInvoice={handleDeleteMergedInvoiceById}
+            onDeleteMergedItem={handleDeleteMergedItemById}
+            onEditMergedItem={handleEditMergedItemById}
+            onAddItemToApprovedInvoice={handleAddItemToApprovedInvoice}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2770,6 +3182,10 @@ export default function App() {
             currentUser={currentUser}
             mergedInvoices={mergedInvoices}
             warehouseFilter={null}
+            onDeleteMergedInvoice={handleDeleteMergedInvoiceById}
+            onDeleteMergedItem={handleDeleteMergedItemById}
+            onEditMergedItem={handleEditMergedItemById}
+            onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2798,6 +3214,26 @@ export default function App() {
             warehouseFilter={currentUser.warehouse || ""}
             onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
             onResendUnreceivedItems={handleResendNotArrivedItems}
+            onDeleteMergedInvoice={handleDeleteMergedInvoiceById}
+            onDeleteMergedItem={handleDeleteMergedItemById}
+            onEditMergedItem={handleEditMergedItemById}
+            onAddItemToApprovedInvoice={handleAddItemToApprovedInvoice}
+          />
+        ) : (
+          <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
+            هذا القسم غير مصرح لك بدخوله.
+          </div>
+        );
+      case "warehouse-received":
+        return hasPermission(currentUser, "warehouse-received") ? (
+          <ReceivedItems
+            currentUser={currentUser}
+            mergedInvoices={mergedInvoices}
+            warehouseFilter={currentUser.warehouse || ""}
+            onDeleteMergedInvoice={handleDeleteMergedInvoiceById}
+            onDeleteMergedItem={handleDeleteMergedItemById}
+            onEditMergedItem={handleEditMergedItemById}
+            onUpdateItemDeliveryStatus={handleUpdateItemDeliveryStatus}
           />
         ) : (
           <div className="bg-white p-10 rounded-2xl text-center text-gray-500 font-medium shadow-sm">
@@ -2985,6 +3421,17 @@ export default function App() {
                 }`}
               >
                 ⚠️ البنود غير المستلمة (المخزن)
+              </button>
+            )}
+
+            {hasPermission(currentUser, "warehouse-received") && currentUser.role !== "مدير" && (
+              <button
+                onClick={() => { setActiveSection("warehouse-received"); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl text-right text-sm font-semibold transition-all cursor-pointer ${
+                  activeSection === "warehouse-received" ? "bg-emerald-600/30 text-emerald-200 border border-emerald-500/20" : "text-gray-300 hover:bg-white/5"
+                }`}
+              >
+                ✅ البنود المستلمة (المخزن)
               </button>
             )}
 

@@ -25,6 +25,7 @@ interface DashboardProps {
   onUpdateItemDeliveryStatus?: (invoiceId: string, itemId: string, status: "received" | "delayed") => void;
   onRolloverUnreceivedItems?: () => void;
   onAddItemToApprovedInvoice?: (invoiceId: string, itemData: any) => void;
+  onNavigateSection?: (section: string) => void;
 }
 
 export default function Dashboard({
@@ -47,7 +48,8 @@ export default function Dashboard({
   onEditWaitingItem,
   onUpdateItemDeliveryStatus,
   onRolloverUnreceivedItems,
-  onAddItemToApprovedInvoice
+  onAddItemToApprovedInvoice,
+  onNavigateSection
 }: DashboardProps) {
   const [randomAyat, setRandomAyat] = useState<{ text: string; reference: string }>({ text: "", reference: "" });
   const [addItemModalInvoice, setAddItemModalInvoice] = useState<MergedInvoice | null>(null);
@@ -194,19 +196,60 @@ export default function Dashboard({
 
   // Calculate unreceived/pending items in approved invoices that are currently visible
   const approvedInvoices = mergedInvoices.filter(m => m.status === "approved" || m.status === "auto_approved");
-  const unreceivedItemsFromApproved = approvedInvoices.reduce((acc, inv) => {
-    const unreceivedInInv = inv.items.filter(it => {
-      if (it.deliveryStatus === "received") return false;
-      const isManager = currentUser.role === "مدير";
-      if (!isManager) {
-        if (currentUser.warehouse && !(it.warehouse || "").trim().includes(currentUser.warehouse.trim())) return false;
-        if (!isToday(inv.date)) return false;
-        if (isPost10PM) return false;
-      }
-      return true;
+
+  // Comprehensive tracking for unreceived (delayed/not arrived), partial, and fully received items
+  const deliveryStats = React.useMemo(() => {
+    let delayedNotArrivedCount = 0; // Items marked as delayed, not arrived, or with 'لم يصل'
+    let partialReceivedCount = 0; // Items with confirmed partial receipt and remaining quantity > 0
+    let totalUnreceivedCount = 0; // All unreceived items (delayed + pending + partial remaining)
+    let fullyReceivedCount = 0; // Fully received items
+    let totalUnreceivedQty = 0; // Sum of quantities remaining
+    let totalPartialRemainingQty = 0; // Sum of partial remaining quantities
+
+    approvedInvoices.forEach((inv) => {
+      inv.items.forEach((it) => {
+        if (!isManager && currentUser.warehouse && !(it.warehouse || "").trim().includes(currentUser.warehouse.trim())) {
+          return;
+        }
+
+        // Hide resent items from pending count
+        if (it.resent) return;
+
+        const isDelayed = it.deliveryStatus === "delayed" || it.isNotArrived || (it.note && (it.note.includes("لم يصل") || it.note.includes("لم تصل")));
+        const isPartialWithRemaining = Boolean(it.hasPartialReceipt && it.remainingQty && it.remainingQty !== "0");
+        const isReceived = it.deliveryStatus === "received";
+
+        if (isDelayed) {
+          delayedNotArrivedCount++;
+        }
+
+        if (isPartialWithRemaining) {
+          partialReceivedCount++;
+          const rem = parseFloat(it.remainingQty || "0");
+          totalPartialRemainingQty += isNaN(rem) ? 0 : rem;
+        }
+
+        if (!isReceived || isPartialWithRemaining) {
+          totalUnreceivedCount++;
+          const q = isPartialWithRemaining ? parseFloat(it.remainingQty || "0") : parseFloat(it.company || "1");
+          totalUnreceivedQty += isNaN(q) ? 1 : q;
+        } else if (isReceived && !isPartialWithRemaining) {
+          fullyReceivedCount++;
+        }
+      });
     });
-    return acc + unreceivedInInv.length;
-  }, 0);
+
+    return {
+      delayedNotArrivedCount,
+      partialReceivedCount,
+      totalUnreceivedCount,
+      fullyReceivedCount,
+      totalUnreceivedQty,
+      totalPartialRemainingQty
+    };
+  }, [approvedInvoices, isManager, currentUser.warehouse]);
+
+  const unreceivedItemsFromApproved = deliveryStats.totalUnreceivedCount;
 
   return (
     <div className="space-y-6">
@@ -324,6 +367,166 @@ export default function Dashboard({
             <p className="text-[10px] text-gray-500 mt-2 text-center font-bold">
               البنود المعتمدة من المدير التي لم يتم تأكيد استلامها صنف صنف في المستودعات بعد.
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* DELIVERY & PARTIAL GOODS STATUS DASHBOARD CARD */}
+      <div className="bg-white dark:bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl">🚚</span>
+            <div>
+              <h3 className="text-lg font-black text-gray-800 dark:text-white flex items-center gap-2">
+                <span>متابعة حركة استلام وتوريد الأصناف</span>
+                <span className="text-xs bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2.5 py-0.5 rounded-full">
+                  تحديث فوري
+                </span>
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                إحصائيات الأصناف التي لم تصل (Delayed)، الأصناف المستلمة جزئياً، وروابط الانتقال السريع
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {onNavigateSection && (
+              <>
+                <button
+                  onClick={() => onNavigateSection(isManager ? "manager-unreceived" : "warehouse-unreceived")}
+                  className="bg-red-50 hover:bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-300 text-xs font-bold p-2 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 border border-red-200 dark:border-red-900/40"
+                  title="الانتقال إلى صفحة النواقص غير المستلمة"
+                >
+                  <span>⚠️ عرض النواقص التي لم تصل</span>
+                  <span className="text-xs">⬅</span>
+                </button>
+
+                {isManager && (
+                  <button
+                    onClick={() => onNavigateSection("manager-received")}
+                    className="bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold p-2 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 border border-emerald-200 dark:border-emerald-900/40"
+                    title="الانتقال إلى صفحة الأصناف المستلمة"
+                  >
+                    <span>✅ عرض البنود المستلمة</span>
+                    <span className="text-xs">⬅</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 3 Metric Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Card 1: Delayed / Not Arrived Items */}
+          <div className="bg-gradient-to-br from-red-50/60 to-red-100/30 dark:from-red-950/20 dark:to-red-900/10 p-4 rounded-xl border border-red-200/80 dark:border-red-900/30 flex flex-col justify-between space-y-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-black text-red-700 dark:text-red-400 uppercase tracking-wide flex items-center gap-1">
+                  <span>🚨</span> أصناف لم تصل (Delayed)
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                  أصناف تم تأكيد تأخيرها أو لم تصل بعد
+                </p>
+              </div>
+              <span className="text-xs font-extrabold bg-red-600 text-white px-2 py-0.5 rounded-md">
+                معلقة
+              </span>
+            </div>
+
+            <div className="flex items-baseline justify-between pt-1">
+              <div>
+                <div className="text-3xl font-black text-red-700 dark:text-red-400">
+                  {deliveryStats.delayedNotArrivedCount > 0 ? deliveryStats.delayedNotArrivedCount : deliveryStats.totalUnreceivedCount}
+                </div>
+                <div className="text-[11px] text-red-600 dark:text-red-300 font-bold mt-0.5">
+                  {deliveryStats.delayedNotArrivedCount > 0 ? `منها ${deliveryStats.totalUnreceivedCount} بند معلق كلياً` : `إجمالي المعلق: ${deliveryStats.totalUnreceivedQty} وحدة`}
+                </div>
+              </div>
+              {onNavigateSection && (
+                <button
+                  onClick={() => onNavigateSection(isManager ? "manager-unreceived" : "warehouse-unreceived")}
+                  className="text-xs font-bold text-red-700 dark:text-red-300 hover:text-red-800 underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>عرض القائمة</span>
+                  <span>←</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Card 2: Partially Received Items */}
+          <div className="bg-gradient-to-br from-amber-50/60 to-amber-100/30 dark:from-amber-950/20 dark:to-amber-900/10 p-4 rounded-xl border border-amber-200/80 dark:border-amber-900/30 flex flex-col justify-between space-y-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-black text-amber-800 dark:text-amber-300 uppercase tracking-wide flex items-center gap-1">
+                  <span>📦</span> أصناف مستلمة جزئياً
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                  تم توريد جزء منها وتبقى كمية معلقة
+                </p>
+              </div>
+              <span className="text-xs font-extrabold bg-amber-500 text-white px-2 py-0.5 rounded-md">
+                جزئي
+              </span>
+            </div>
+
+            <div className="flex items-baseline justify-between pt-1">
+              <div>
+                <div className="text-3xl font-black text-amber-800 dark:text-amber-300">
+                  {deliveryStats.partialReceivedCount}
+                </div>
+                <div className="text-[11px] text-amber-700 dark:text-amber-400 font-bold mt-0.5">
+                  {deliveryStats.partialReceivedCount > 0 ? `المتبقي: ${deliveryStats.totalPartialRemainingQty} وحدة` : "لا توجد معلقات جزئية"}
+                </div>
+              </div>
+              {onNavigateSection && (
+                <button
+                  onClick={() => onNavigateSection(isManager ? "manager-unreceived" : "warehouse-unreceived")}
+                  className="text-xs font-bold text-amber-800 dark:text-amber-300 hover:text-amber-900 underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>عرض البنود</span>
+                  <span>←</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Card 3: Fully Received Items */}
+          <div className="bg-gradient-to-br from-emerald-50/60 to-emerald-100/30 dark:from-emerald-950/20 dark:to-emerald-900/10 p-4 rounded-xl border border-emerald-200/80 dark:border-emerald-900/30 flex flex-col justify-between space-y-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide flex items-center gap-1">
+                  <span>✅</span> أصناف مستلمة بالكامل
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                  تم تأكيد وصولها واستلامها 100%
+                </p>
+              </div>
+              <span className="text-xs font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-md">
+                مكتمل
+              </span>
+            </div>
+
+            <div className="flex items-baseline justify-between pt-1">
+              <div>
+                <div className="text-3xl font-black text-emerald-800 dark:text-emerald-300">
+                  {deliveryStats.fullyReceivedCount}
+                </div>
+                <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold mt-0.5">
+                  بند معتمد مكتمل الاستلام
+                </div>
+              </div>
+              {onNavigateSection && (
+                <button
+                  onClick={() => onNavigateSection(isManager ? "manager-received" : "dashboard")}
+                  className="text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:text-emerald-900 underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>عرض السجل</span>
+                  <span>←</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

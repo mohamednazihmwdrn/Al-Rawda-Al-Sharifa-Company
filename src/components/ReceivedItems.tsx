@@ -7,13 +7,22 @@ interface ReceivedItemsProps {
   currentUser: User;
   mergedInvoices: MergedInvoice[];
   warehouseFilter: string | null; // Null means manager (all)
+  onDeleteMergedInvoice?: (invoiceId: string) => void;
+  onDeleteMergedItem?: (invoiceId: string, itemId: string) => void;
+  onEditMergedItem?: (invoiceId: string, item: Item) => void;
+  onUpdateItemDeliveryStatus?: (invoiceId: string, itemId: string, status: "received" | "delayed") => void;
 }
 
 export default function ReceivedItems({
   currentUser,
   mergedInvoices,
-  warehouseFilter
+  warehouseFilter,
+  onDeleteMergedInvoice,
+  onDeleteMergedItem,
+  onEditMergedItem,
+  onUpdateItemDeliveryStatus
 }: ReceivedItemsProps) {
+  const isManager = currentUser.role === "مدير";
   // Filter and group received items from approved invoices
   const approvedInvoices = mergedInvoices.filter(
     (m) => m.status === "approved" || m.status === "auto_approved"
@@ -170,6 +179,15 @@ export default function ReceivedItems({
                   </div>
                   
                   <div className="flex flex-wrap gap-2 w-full md:w-auto justify-end">
+                    {isManager && onDeleteMergedInvoice && (
+                      <button
+                        onClick={() => onDeleteMergedInvoice(group.id)}
+                        className="bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold p-2.5 px-3 rounded-xl cursor-pointer transition-all flex items-center gap-1 border border-red-200"
+                        title="حذف الفاتورة المدمجة بالكامل ونقلها لسلة المحذوفات"
+                      >
+                        🗑️ حذف الفاتورة
+                      </button>
+                    )}
                     <button
                       onClick={() => toggleGroup(group.id)}
                       className="bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-xs font-bold p-2.5 px-4 rounded-xl cursor-pointer transition-all flex items-center gap-1.5"
@@ -196,6 +214,7 @@ export default function ReceivedItems({
                           <th className="p-3">اسم الصنف والبيان</th>
                           {!warehouseFilter && <th className="p-3 w-40">المستودع المعني</th>}
                           <th className="p-3 w-32 text-center">حالة الاستلام الحالية</th>
+                          {isManager && <th className="p-3 w-28 text-center">إجراءات المدير</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -245,6 +264,30 @@ export default function ReceivedItems({
                                   </span>
                                 )}
                               </td>
+                              {isManager && (
+                                <td className="p-3 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    {onEditMergedItem && (
+                                      <button
+                                        onClick={() => onEditMergedItem(group.id, item)}
+                                        className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-xs font-bold transition-all cursor-pointer border border-amber-200"
+                                        title="تعديل هذا البند"
+                                      >
+                                        ✏️ تعديل
+                                      </button>
+                                    )}
+                                    {onDeleteMergedItem && (
+                                      <button
+                                        onClick={() => onDeleteMergedItem(group.id, item.id)}
+                                        className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all cursor-pointer border border-red-200"
+                                        title="حذف هذا البند"
+                                      >
+                                        🗑️ حذف
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}

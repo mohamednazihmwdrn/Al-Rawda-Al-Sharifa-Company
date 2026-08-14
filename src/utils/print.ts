@@ -225,6 +225,7 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
 
       const isPartial = item.hasPartialReceipt;
       const isDelayedOrNotArrived = item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")));
+      const notArrivedTag = isDelayedOrNotArrived ? ` <span class="not-arrived-tag">لم يصل</span>` : '';
       const partialPrintHtml = isPartial ? `
         <div style="font-size: ${normalFontSize - 2}px; font-weight: 800; color: #b00; margin-top: 1px;">
           (مطلوب: ${item.originalQty || item.company} | مستلم: ${item.receivedQty || "0"} | متبقي: ${item.remainingQty || "0"})
@@ -236,13 +237,10 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
           <td style="width: 6%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${index + 1 + col.startIndex}</td>
           <td style="width: 11%; text-align: center; font-weight: 900; color: #000000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
           <td style="width: 71%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${cleanFixedName}">
-            ${cleanFixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
+            ${cleanFixedName}${displayTag}${dupTag}${notArrivedTag}${noteTag}${partialPrintHtml}
           </td>
           <td style="width: 12%; text-align: center; padding: 1px 1px; white-space: nowrap;">
-            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
-              <span class="print-checkbox"></span>
-              ${isDelayedOrNotArrived ? `<span class="not-arrived-tag">لم يصل</span>` : ''}
-            </div>
+            <span class="print-checkbox"></span>
           </td>
         </tr>
       `;
@@ -710,6 +708,7 @@ export function printMatrix(
 
       const isPartial = item.hasPartialReceipt;
       const isDelayedOrNotArrived = item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")));
+      const notArrivedTag = isDelayedOrNotArrived ? ` <span class="not-arrived-tag">لم يصل</span>` : '';
       const partialPrintHtml = isPartial ? `
         <div style="font-size: ${matrixFontSize - 2}px; font-weight: 800; color: #b00; margin-top: 1px;">
           (مطلوب: ${item.originalQty || item.company} | مستلم: ${item.receivedQty || "0"} | متبقي: ${item.remainingQty || "0"})
@@ -721,13 +720,10 @@ export function printMatrix(
           <td style="width: 8%; text-align: center;">${index + 1 + col.startIndex}</td>
           <td style="width: 14%; text-align: center; font-weight: 800; color: #8b6b4d;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
           <td style="width: 65%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${cleanFixedName}">
-            ${cleanFixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
+            ${cleanFixedName}${displayTag}${dupTag}${notArrivedTag}${noteTag}${partialPrintHtml}
           </td>
           <td style="width: 13%; text-align: center; padding: 1px 1px; white-space: nowrap;">
-            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
-              <span class="print-checkbox"></span>
-              ${isDelayedOrNotArrived ? `<span class="not-arrived-tag">لم يصل</span>` : ''}
-            </div>
+            <span class="print-checkbox"></span>
           </td>
         </tr>
       `;
