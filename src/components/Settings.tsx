@@ -151,6 +151,7 @@ export default function Settings({
 
   // Saved Items management states
   const [savedItemsSearch, setSavedItemsSearch] = useState("");
+  const [savedItemsOnlyFavorites, setSavedItemsOnlyFavorites] = useState(false);
   const [editingSavedItemId, setEditingSavedItemId] = useState<string | null>(null);
   const [editingSavedItemName, setEditingSavedItemName] = useState("");
   const [editingSavedItemCompany, setEditingSavedItemCompany] = useState("");
@@ -941,8 +942,8 @@ export default function Settings({
           إدارة الأصناف المسجلة تلقائياً في الكتالوج والتي يتم استخدامها للإكمال التلقائي في السلة وعروض الأسعار والتقارير. يمكنك مراجعة الأسماء، تعديلها لتوحيدها، أو حذف الأصناف المكررة وغير المرغوب فيها نهائياً لتنظيف الكتالوج.
         </p>
 
-        {/* Search Catalog */}
-        <div className="flex gap-2">
+        {/* Search & Filter Catalog */}
+        <div className="flex flex-col sm:flex-row gap-2">
           <input
             type="text"
             placeholder="🔍 ابحث عن صنف بالاسم أو الشركة أو الاسم الثابت..."
@@ -950,10 +951,24 @@ export default function Settings({
             onChange={(e) => setSavedItemsSearch(e.target.value)}
             className="flex-1 p-2.5 border rounded-xl text-sm focus:outline-[#8b6b4d]"
           />
-          {savedItemsSearch && (
+          <button
+            onClick={() => setSavedItemsOnlyFavorites(prev => !prev)}
+            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              savedItemsOnlyFavorites 
+                ? "bg-amber-500 text-white shadow-xs" 
+                : "bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100"
+            }`}
+          >
+            <span>⭐</span>
+            <span>المفضلة فقط ({savedItems.filter(s => s.isFavorite).length})</span>
+          </button>
+          {(savedItemsSearch || savedItemsOnlyFavorites) && (
             <button
-              onClick={() => setSavedItemsSearch("")}
-              className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-xs font-bold transition-all"
+              onClick={() => {
+                setSavedItemsSearch("");
+                setSavedItemsOnlyFavorites(false);
+              }}
+              className="px-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-xs font-bold transition-all cursor-pointer"
             >
               إعادة تعيين
             </button>
@@ -966,15 +981,17 @@ export default function Settings({
             <thead>
               <tr className="bg-gray-50 border-b">
                 <th className="p-3 font-bold text-gray-700 w-1/12 text-center">#</th>
+                <th className="p-3 font-bold text-gray-700 w-1/12 text-center">المفضلة ⭐</th>
                 <th className="p-3 font-bold text-gray-700 w-3/12">اسم الشركة</th>
-                <th className="p-3 font-bold text-gray-700 w-4/12">الاسم الثابت الموحد</th>
-                <th className="p-3 font-bold text-gray-700 w-4/12">الاسم الكامل في الكتالوج</th>
+                <th className="p-3 font-bold text-gray-700 w-3/12">الاسم الثابت الموحد</th>
+                <th className="p-3 font-bold text-gray-700 w-3/12">الاسم الكامل في الكتالوج</th>
                 <th className="p-3 font-bold text-gray-700 w-2/12 text-center">العمليات</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {savedItems
                 .filter(item => {
+                  if (savedItemsOnlyFavorites && !item.isFavorite) return false;
                   if (!savedItemsSearch.trim()) return true;
                   const query = savedItemsSearch.toLowerCase();
                   return (
@@ -988,6 +1005,26 @@ export default function Settings({
                   return (
                     <tr key={`${item.id || index}-${index}`} className="hover:bg-gray-50/50">
                       <td className="p-3 text-center text-gray-400">{index + 1}</td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={async () => {
+                            if (onSaveSavedItem) {
+                              await onSaveSavedItem({
+                                ...item,
+                                isFavorite: !item.isFavorite
+                              });
+                            }
+                          }}
+                          className={`p-1 px-2 rounded-lg transition-all text-xs cursor-pointer font-bold ${
+                            item.isFavorite
+                              ? "bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200"
+                              : "text-gray-300 hover:text-amber-500 hover:bg-gray-100"
+                          }`}
+                          title={item.isFavorite ? "صنف مفضل (انقر لإلغاء التفضيل)" : "انقر لتمييز الصنف كمفضل للمستودعات"}
+                        >
+                          {item.isFavorite ? "⭐ مفضل" : "☆"}
+                        </button>
+                      </td>
                       <td className="p-3">
                         {isEditing ? (
                           <input

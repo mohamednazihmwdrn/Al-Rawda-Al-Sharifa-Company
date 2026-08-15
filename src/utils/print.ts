@@ -537,7 +537,7 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
               </div>
 
               <div class="footer">
-                  ${getFooterHtml("البيان")}
+                  ${getFooterHtml("الطلب")}
                   <p style="margin: 2px 0;"><span class="copyright">حقوق الملكية: Mohamed Nazih | 📱 01029190615</span></p>
               </div>
           </div>
@@ -574,9 +574,16 @@ export function printMatrix(
   const printNum = getNextPrintNumber("matrix");
   const serialNumber = String(printNum).padStart(3, "0");
 
-  // Split items into Nahas (Copper) and Nady (Club) Warehouses
+  // Determine initial filter
+  const initialFilter = (!warehouseName || warehouseName === "جميع المخازن" || warehouseName === "all" || warehouseName === "المخازن المشتركة")
+    ? "all"
+    : warehouseName.trim();
+
+  // Calculate items per warehouse
   const nahasItems: Item[] = [];
   const nadyItems: Item[] = [];
+  const otherItems: Item[] = [];
+  const customWarehouseMap: { [key: string]: Item[] } = {};
 
   items.forEach(item => {
     const wh = (item.warehouse || "").trim();
@@ -595,40 +602,110 @@ export function printMatrix(
     ) {
       nadyItems.push(item);
     } else {
-      // Distribute custom warehouses or manager warehouse items evenly to keep columns balanced
-      if (nahasItems.length <= nadyItems.length) {
-        nahasItems.push(item);
-      } else {
-        nadyItems.push(item);
+      otherItems.push(item);
+      if (wh) {
+        if (!customWarehouseMap[wh]) customWarehouseMap[wh] = [];
+        customWarehouseMap[wh].push(item);
       }
     }
   });
 
-  // Matrix splits EACH warehouse into exactly 2 columns, giving 4 columns total!
-  const splitIntoTwoColumns = (itemsList: Item[]) => {
-    const half = Math.ceil(itemsList.length / 2);
-    return [itemsList.slice(0, half), itemsList.slice(half)];
+  // Helper to split array into N chunks
+  const splitIntoNChunks = (arr: Item[], n: number) => {
+    const chunks: Item[][] = [];
+    const size = Math.ceil(arr.length / n);
+    for (let i = 0; i < n; i++) {
+      chunks.push(arr.slice(i * size, (i + 1) * size));
+    }
+    return chunks;
   };
 
-  const [nahasColA, nahasColB] = splitIntoTwoColumns(nahasItems);
-  const [nadyColA, nadyColB] = splitIntoTwoColumns(nadyItems);
+  // Helper to build columns for a specific warehouse
+  const buildSingleWarehouseColumns = (whTitle: string, whItemsList: Item[]) => {
+    let numCols = 4;
+    if (whItemsList.length <= 12) {
+      numCols = 2;
+    } else if (whItemsList.length <= 24) {
+      numCols = 3;
+    } else {
+      numCols = 4;
+    }
 
-  const columnsToRender = [
-    { title: "مخزن النحاس (أ)", items: nahasColA, startIndex: 0 },
-    { title: "مخزن النحاس (ب)", items: nahasColB, startIndex: nahasColA.length },
-    { title: "مخزن النادي (أ)", items: nadyColA, startIndex: 0 },
-    { title: "مخزن النادي (ب)", items: nadyColB, startIndex: nadyColA.length }
-  ];
+    const chunks = splitIntoNChunks(whItemsList, numCols);
+    const letters = ["أ", "ب", "ج", "د", "هـ", "و"];
+    return chunks.map((chunk, idx) => {
+      let startIndex = 0;
+      for (let prev = 0; prev < idx; prev++) {
+        startIndex += chunks[prev].length;
+      }
+      return {
+        title: numCols > 1 ? `${whTitle} (${letters[idx] || (idx + 1)})` : whTitle,
+        items: chunk,
+        startIndex
+      };
+    });
+  };
+
+  // Build columns according to initial filter
+  let initialColumns: { title: string; items: Item[]; startIndex: number }[] = [];
+  let initialDisplayTitle = title;
+  let initialSharedWhsStr = "جميع المخازن";
+
+  if (initialFilter === "all") {
+    // 4 columns: Nahas (A & B) and Nady (A & B)
+    const [nahasColA, nahasColB] = splitIntoNChunks(nahasItems, 2);
+    const [nadyColA, nadyColB] = splitIntoNChunks(nadyItems, 2);
+
+    initialColumns = [
+      { title: "مخزن النحاس (أ)", items: nahasColA, startIndex: 0 },
+      { title: "مخزن النحاس (ب)", items: nahasColB, startIndex: nahasColA.length },
+      { title: "مخزن النادي (أ)", items: nadyColA, startIndex: 0 },
+      { title: "مخزن النادي (ب)", items: nadyColB, startIndex: nadyColA.length }
+    ];
+
+    // If other items exist and Nahas/Nady are small, balance them in
+    if (otherItems.length > 0) {
+      const activeWhs: string[] = [];
+      if (nahasItems.length > 0) activeWhs.push("النحاس");
+      if (nadyItems.length > 0) activeWhs.push("النادي");
+      Object.keys(customWarehouseMap).forEach(k => activeWhs.push(k));
+      initialSharedWhsStr = activeWhs.join(" - ") || "جميع المخازن";
+    } else {
+      initialSharedWhsStr = "مخزن النحاس - مخزن النادي";
+    }
+  } else if (
+    initialFilter.includes("النحاس") ||
+    initialFilter.toLowerCase().includes("nahas") ||
+    initialFilter.includes("جمعة")
+  ) {
+    initialColumns = buildSingleWarehouseColumns("مخزن النحاس", nahasItems);
+    initialDisplayTitle = initialDisplayTitle.includes("النحاس") ? initialDisplayTitle : `${initialDisplayTitle} (مخزن النحاس)`;
+    initialSharedWhsStr = "مخزن النحاس فقط";
+  } else if (
+    initialFilter.includes("النادي") ||
+    initialFilter.toLowerCase().includes("nady") ||
+    initialFilter.includes("جعفر")
+  ) {
+    initialColumns = buildSingleWarehouseColumns("مخزن النادي", nadyItems);
+    initialDisplayTitle = initialDisplayTitle.includes("النادي") ? initialDisplayTitle : `${initialDisplayTitle} (مخزن النادي)`;
+    initialSharedWhsStr = "مخزن النادي فقط";
+  } else {
+    // Custom warehouse filter
+    const targetItems = customWarehouseMap[initialFilter] || items.filter(i => (i.warehouse || "").trim().includes(initialFilter));
+    initialColumns = buildSingleWarehouseColumns(initialFilter, targetItems.length > 0 ? targetItems : items);
+    initialDisplayTitle = `${initialDisplayTitle} (${initialFilter})`;
+    initialSharedWhsStr = `${initialFilter} فقط`;
+  }
 
   let maxItemsInAnyCol = 0;
-  columnsToRender.forEach(col => {
+  initialColumns.forEach(col => {
     if (col.items.length > maxItemsInAnyCol) {
       maxItemsInAnyCol = col.items.length;
     }
   });
   if (maxItemsInAnyCol === 0) maxItemsInAnyCol = 1;
 
-  // Professional, highly readable sizing for A4 matrix printing (landscape)
+  // Sizing styles
   let matrixFontSize = 11.0;
   let matrixCellPadding = "3px 4.5px";
   let matrixHeaderPadding = "4px 4.5px";
@@ -638,7 +715,7 @@ export function printMatrix(
   let matrixTitleFontSize = 13;
   let matrixSubTitleFontSize = 10;
   let matrixLogoFontSize = 9.5;
-  let matrixPageMargin = "10mm"; // 10mm as requested
+  let matrixPageMargin = "10mm";
   let checkboxSize = 11;
 
   if (maxItemsInAnyCol > 38) {
@@ -651,7 +728,6 @@ export function printMatrix(
     matrixTitleFontSize = 11.0;
     matrixSubTitleFontSize = 8.5;
     matrixLogoFontSize = 8.0;
-    matrixPageMargin = "10mm";
     checkboxSize = 10;
   } else if (maxItemsInAnyCol > 25) {
     matrixFontSize = 10.5;
@@ -663,35 +739,15 @@ export function printMatrix(
     matrixTitleFontSize = 12.0;
     matrixSubTitleFontSize = 9.0;
     matrixLogoFontSize = 8.8;
-    matrixPageMargin = "10mm";
     checkboxSize = 10.5;
-  } else if (maxItemsInAnyCol > 15) {
-    matrixFontSize = 11.0;
-    matrixCellPadding = "3px 4px";
-    matrixHeaderPadding = "3.5px 4px";
-    matrixHeaderBottomMargin = "4px";
-    matrixBodyPadding = "4.5px";
-    matrixHeaderFontSize = 14;
-    matrixTitleFontSize = 12.5;
-    matrixSubTitleFontSize = 9.5;
-    matrixLogoFontSize = 9.2;
-    matrixPageMargin = "10mm";
-    checkboxSize = 11;
   }
 
-  const activeWhs: string[] = [];
-  if (nahasItems.length > 0) activeWhs.push("النحاس");
-  if (nadyItems.length > 0) activeWhs.push("النادي");
-  const sharedWhsStr = activeWhs.join(" - ") || "لا يوجد";
-
-  let columnsHtml = "";
-  columnsToRender.forEach(col => {
+  const renderColumnHtml = (col: { title: string; items: Item[]; startIndex: number }, totalCols: number) => {
     let rowsHtml = "";
     col.items.forEach((item, index) => {
       const warehouseTag = item.warehouse || col.title;
       const dupTag = item.duplicateNote ? ` <span class="dup-badge">🔄 مكرر</span>` : '';
       
-      // Clean notes from any verbose auto-generated resend text
       const cleanNote = (item.note || "")
         .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
         .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
@@ -699,12 +755,13 @@ export function printMatrix(
         .trim();
       const noteTag = cleanNote && cleanNote !== "-" ? ` <span class="item-note">(${cleanNote})</span>` : '';
 
-      // Clean fixed name from any accidental concatenated resend text
       const cleanFixedName = (item.fixedName || item.description || "")
         .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
         .trim();
 
-      const displayTag = !warehouseTag.includes("النحاس") && !warehouseTag.includes("النادي") ? ` <span class="warehouse-tag">${warehouseTag}</span>` : '';
+      const displayTag = (!warehouseTag.includes("النحاس") && !warehouseTag.includes("النادي") && initialFilter === "all")
+        ? ` <span class="warehouse-tag">${warehouseTag}</span>`
+        : '';
 
       const isPartial = item.hasPartialReceipt;
       const isDelayedOrNotArrived = item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")));
@@ -737,8 +794,10 @@ export function printMatrix(
       `;
     }
 
-    columnsHtml += `
-      <div class="print-column">
+    const minWidthPercent = totalCols === 2 ? '48%' : totalCols === 3 ? '31%' : '23%';
+
+    return `
+      <div class="print-column" style="min-width: ${minWidthPercent};">
           <div class="column-header">${col.title}</div>
           <table>
               <thead>
@@ -755,13 +814,32 @@ export function printMatrix(
           </table>
       </div>
     `;
+  };
+
+  let columnsHtml = "";
+  initialColumns.forEach(col => {
+    columnsHtml += renderColumnHtml(col, initialColumns.length);
   });
+
+  const totalFilteredCount = initialFilter === "all"
+    ? items.length
+    : initialColumns.reduce((sum, c) => sum + c.items.length, 0);
+
+  // Prepare custom warehouse buttons for preview toolbar
+  const customWhButtonsHtml = Object.keys(customWarehouseMap).map(cWh => {
+    const cCount = customWarehouseMap[cWh].length;
+    return `
+      <button class="filter-btn" data-filter="${cWh}" onclick="switchWarehouseFilter('${cWh}')">
+        📦 ${cWh} (${cCount})
+      </button>
+    `;
+  }).join("");
 
   const html = `
       <html dir="rtl">
       <head>
           <meta charset="UTF-8">
-          <title>${title} - مصفوفة ${serialNumber}</title>
+          <title>${initialDisplayTitle} - مصفوفة ${serialNumber}</title>
           <style id="matrixPageOrientationStyle">
               @page { 
                   size: A4 landscape !important; 
@@ -792,17 +870,63 @@ export function printMatrix(
               .no-print {
                   background: #1e293b;
                   color: #ffffff;
-                  padding: 10px 16px;
+                  padding: 12px 18px;
                   display: flex;
-                  justify-content: space-between;
-                  align-items: center;
+                  flex-direction: column;
+                  gap: 10px;
                   position: sticky;
                   top: 0;
                   z-index: 9999;
-                  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-                  font-family: sans-serif;
-                  margin-bottom: 12px;
+                  box-shadow: 0 4px 15px rgba(0,0,0,0.35);
+                  font-family: 'Segoe UI', sans-serif;
+                  margin-bottom: 14px;
+                  border-radius: 12px;
+                  border: 1px solid #334155;
+              }
+              .no-print-top {
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  flex-wrap: wrap;
+                  gap: 10px;
+              }
+              .no-print-filters {
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  flex-wrap: wrap;
+                  padding-top: 8px;
+                  border-top: 1px solid #334155;
+              }
+              .filter-label {
+                  font-size: 12px;
+                  font-weight: bold;
+                  color: #cbd5e1;
+                  margin-left: 4px;
+              }
+              .filter-btn {
+                  background: #334155;
+                  color: #f8fafc;
+                  border: 1px solid #475569;
+                  padding: 5px 12px;
                   border-radius: 8px;
+                  cursor: pointer;
+                  font-size: 12px;
+                  font-weight: 700;
+                  transition: all 0.2s;
+                  display: flex;
+                  align-items: center;
+                  gap: 4px;
+              }
+              .filter-btn:hover {
+                  background: #475569;
+                  border-color: #64748b;
+              }
+              .filter-btn.active {
+                  background: #8b6b4d !important;
+                  color: white !important;
+                  border-color: #d4a373 !important;
+                  box-shadow: 0 0 0 2px rgba(139,107,77,0.4);
               }
               .header {
                   display: flex;
@@ -853,7 +977,6 @@ export function printMatrix(
                   flex: 1;
                   display: flex;
                   flex-direction: column;
-                  min-width: 23%;
                   margin-right: 8px;
               }
               .print-column:last-child {
@@ -1011,17 +1134,34 @@ export function printMatrix(
       </head>
       <body>
           <div class="no-print">
-              <div style="font-weight:bold; font-size:14px; display:flex; align-items:center; gap:8px;">
-                  <span>⚙️ إعدادات طباعة المصفوفة</span>
-                  <span style="font-size:12px; color:#cbd5e1; font-weight:normal;">(الاتجاه الحالي: <strong id="orientationBadge" style="color:#f59e0b;">أفقي Landscape</strong>)</span>
+              <div class="no-print-top">
+                  <div style="font-weight:bold; font-size:14px; display:flex; align-items:center; gap:8px;">
+                      <span>⚙️ إعدادات طباعة المصفوفة</span>
+                      <span style="font-size:12px; color:#cbd5e1; font-weight:normal;">(الاتجاه: <strong id="orientationBadge" style="color:#f59e0b;">أفقي Landscape</strong>)</span>
+                  </div>
+                  <div style="display:flex; gap:10px; align-items:center;">
+                      <button id="toggleOrientationBtn" onclick="toggleMatrixOrientation()" style="background:#8b6b4d; color:white; border:none; padding:7px 15px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:13px; transition:all 0.2s;">
+                          🔄 قلب الورقة إلى رأسي (Portrait)
+                      </button>
+                      <button onclick="window.print()" style="background:#16a34a; color:white; border:none; padding:7px 20px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:13px; transition:all 0.2s; box-shadow: 0 2px 8px rgba(22,163,74,0.4);">
+                          🖨️ طباعة الآن
+                      </button>
+                  </div>
               </div>
-              <div style="display:flex; gap:10px; align-items:center;">
-                  <button id="toggleOrientationBtn" onclick="toggleMatrixOrientation()" style="background:#8b6b4d; color:white; border:none; padding:7px 15px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px; transition:all 0.2s;">
-                      🔄 قلب الورقة إلى رأسي (Portrait)
+
+              <!-- Live Warehouse Filter Toolbar -->
+              <div class="no-print-filters">
+                  <span class="filter-label">🔘 فلترة المستودع:</span>
+                  <button class="filter-btn ${initialFilter === 'all' ? 'active' : ''}" data-filter="all" onclick="switchWarehouseFilter('all')">
+                      🌐 جميع المخازن (${items.length})
                   </button>
-                  <button onclick="window.print()" style="background:#16a34a; color:white; border:none; padding:7px 18px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px; transition:all 0.2s;">
-                      🖨️ طباعة الآن
+                  <button class="filter-btn ${initialFilter.includes('النحاس') ? 'active' : ''}" data-filter="مخزن النحاس" onclick="switchWarehouseFilter('مخزن النحاس')">
+                      🏭 مخزن النحاس (${nahasItems.length})
                   </button>
+                  <button class="filter-btn ${initialFilter.includes('النادي') ? 'active' : ''}" data-filter="مخزن النادي" onclick="switchWarehouseFilter('مخزن النادي')">
+                      🏟️ مخزن النادي (${nadyItems.length})
+                  </button>
+                  ${customWhButtonsHtml}
               </div>
           </div>
 
@@ -1031,8 +1171,8 @@ export function printMatrix(
                       ${getHeaderHtml()}
                   </div>
                   <div class="center">
-                      <div class="title-text">📋 ${title}<br><span class="serial">بيان رقم ${serialNumber}</span></div>
-                      <div style="font-size:${matrixFontSize + 0.8}px; font-weight:bold; margin-top:4px;">المخازن المشتركة: ${sharedWhsStr}</div>
+                      <div class="title-text" id="matrixMainTitle">📋 ${initialDisplayTitle}<br><span class="serial">بيان رقم ${serialNumber}</span></div>
+                      <div id="matrixSubTitle" style="font-size:${matrixFontSize + 0.8}px; font-weight:bold; margin-top:4px;">نطاق الطباعة: ${initialSharedWhsStr}</div>
                   </div>
                   <div class="left">
                       <div class="date-time">📅 التاريخ: ${dateStr}</div>
@@ -1041,13 +1181,13 @@ export function printMatrix(
               </div>
 
               <!-- Columns Container -->
-              <div class="side-by-side-container">
+              <div class="side-by-side-container" id="columnsContainer">
                   ${columnsHtml}
               </div>
 
               <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;padding: 4px 0; border-top: 2px dashed #000; margin-top:4px;">
-                  <div style="font-size:${matrixFontSize}px;color:#000;font-weight:800;">
-                      إجمالي الأصناف بالمصفوفة: <span style="font-size:${matrixFontSize+1.5}px;text-decoration:underline;">${items.length}</span> (النحاس: ${nahasItems.length} | النادي: ${nadyItems.length})
+                  <div id="matrixCountFooter" style="font-size:${matrixFontSize}px;color:#000;font-weight:800;">
+                      إجمالي الأصناف بالمصفوفة: <span style="font-size:${matrixFontSize+1.5}px;text-decoration:underline;">${totalFilteredCount}</span> ${initialFilter === 'all' ? `(النحاس: ${nahasItems.length} | النادي: ${nadyItems.length})` : `(${initialFilter})`}
                   </div>
                   <div class="user-footer">👤 محرر المصفوفة: ${getPrintUserName(currentUserDisplay)}</div>
               </div>
@@ -1058,7 +1198,12 @@ export function printMatrix(
               </div>
           </div>
           <script>
+              const allRawItems = ${JSON.stringify(items)};
+              const baseTitle = ${JSON.stringify(title)};
+              const serialNum = ${JSON.stringify(serialNumber)};
+              let currentFilter = ${JSON.stringify(initialFilter)};
               let isLandscape = true;
+
               function toggleMatrixOrientation() {
                   isLandscape = !isLandscape;
                   const styleEl = document.getElementById('matrixPageOrientationStyle');
@@ -1074,6 +1219,138 @@ export function printMatrix(
                       if (badge) badge.innerText = 'رأسي Portrait';
                   }
               }
+
+              function splitIntoN(arr, n) {
+                  const chunks = [];
+                  const size = Math.ceil(arr.length / n);
+                  for (let i = 0; i < n; i++) {
+                      chunks.push(arr.slice(i * size, (i + 1) * size));
+                  }
+                  return chunks;
+              }
+
+              function buildColumns(filter) {
+                  const nahas = [];
+                  const nady = [];
+                  const others = [];
+                  allRawItems.forEach(it => {
+                      const wh = (it.warehouse || "").trim();
+                      if (wh.includes("النحاس") || wh.toLowerCase().includes("nahas") || wh.includes("جمعة")) {
+                          nahas.push(it);
+                      } else if (wh.includes("النادي") || wh.toLowerCase().includes("nady") || wh.includes("جعفر")) {
+                          nady.push(it);
+                      } else {
+                          others.push(it);
+                      }
+                  });
+
+                  if (filter === "all") {
+                      const [nA, nB] = splitIntoN(nahas, 2);
+                      const [ndA, ndB] = splitIntoN(nady, 2);
+                      return {
+                          cols: [
+                              { title: "مخزن النحاس (أ)", items: nA, startIndex: 0 },
+                              { title: "مخزن النحاس (ب)", items: nB, startIndex: nA.length },
+                              { title: "مخزن النادي (أ)", items: ndA, startIndex: 0 },
+                              { title: "مخزن النادي (ب)", items: ndB, startIndex: ndA.length }
+                          ],
+                          title: baseTitle,
+                          sub: "نطاق الطباعة: جميع المخازن (مخزن النحاس - مخزن النادي)",
+                          footer: "إجمالي الأصناف بالمصفوفة: " + allRawItems.length + " (النحاس: " + nahas.length + " | النادي: " + nady.length + ")"
+                      };
+                  }
+
+                  let targetItems = [];
+                  let whDisplay = filter;
+                  if (filter.includes("النحاس")) {
+                      targetItems = nahas;
+                      whDisplay = "مخزن النحاس";
+                  } else if (filter.includes("النادي")) {
+                      targetItems = nady;
+                      whDisplay = "مخزن النادي";
+                  } else {
+                      targetItems = allRawItems.filter(i => (i.warehouse || "").trim().includes(filter));
+                  }
+
+                  let numCols = targetItems.length <= 12 ? 2 : targetItems.length <= 24 ? 3 : 4;
+                  const chunks = splitIntoN(targetItems, numCols);
+                  const letters = ["أ", "ب", "ج", "د", "هـ", "و"];
+                  const cols = chunks.map((chunk, idx) => {
+                      let startIndex = 0;
+                      for (let prev = 0; prev < idx; prev++) {
+                          startIndex += chunks[prev].length;
+                      }
+                      return {
+                          title: numCols > 1 ? whDisplay + " (" + (letters[idx] || (idx + 1)) + ")" : whDisplay,
+                          items: chunk,
+                          startIndex: startIndex
+                      };
+                  });
+
+                  return {
+                      cols: cols,
+                      title: baseTitle.includes(whDisplay) ? baseTitle : baseTitle + " (" + whDisplay + ")",
+                      sub: "نطاق الطباعة: " + whDisplay + " فقط",
+                      footer: "إجمالي الأصناف بالمصفوفة (" + whDisplay + "): " + targetItems.length
+                  };
+              }
+
+              function switchWarehouseFilter(filter) {
+                  currentFilter = filter;
+                  document.querySelectorAll('.filter-btn').forEach(btn => {
+                      if (btn.getAttribute('data-filter') === filter) {
+                          btn.classList.add('active');
+                      } else {
+                          btn.classList.remove('active');
+                      }
+                  });
+
+                  const res = buildColumns(filter);
+                  document.getElementById('matrixMainTitle').innerHTML = '📋 ' + res.title + '<br><span class="serial">بيان رقم ' + serialNum + '</span>';
+                  document.getElementById('matrixSubTitle').innerText = res.sub;
+                  document.getElementById('matrixCountFooter').innerHTML = res.footer;
+
+                  let colsHtml = '';
+                  const totalCols = res.cols.length;
+                  const minWidth = totalCols === 2 ? '48%' : totalCols === 3 ? '31%' : '23%';
+
+                  res.cols.forEach(col => {
+                      let rows = '';
+                      col.items.forEach((item, idx) => {
+                          const isPartial = item.hasPartialReceipt;
+                          const isDelayed = item.isNotArrived || item.deliveryStatus === 'delayed' || (item.note && (item.note.includes('لم يصل') || item.note.includes('لم تصل')));
+                          const cleanFixed = (item.fixedName || item.description || '').replace(/[\\(（]?\\s*إعادة إرسال لبند لم يصل[^\\)）]*[\\)）]?/g, '').trim();
+                          const cleanNote = (item.note || '').replace(/[\\(（]?\\s*إعادة إرسال لبند لم يصل[^\\)）]*[\\)）]?/g, '').trim();
+                          const noteTag = cleanNote && cleanNote !== '-' ? ' <span class="item-note">(' + cleanNote + ')</span>' : '';
+                          const notArrivedTag = isDelayed ? ' <span class="not-arrived-tag">لم يصل</span>' : '';
+                          const dupTag = item.duplicateNote ? ' <span class="dup-badge">🔄 مكرر</span>' : '';
+                          const qty = isPartial ? (item.remainingQty || '0') : (item.company || '1');
+                          const partialHtml = isPartial ? '<div style="font-size:9px; font-weight:800; color:#b00; margin-top:1px;">(مطلوب: ' + (item.originalQty || item.company) + ' | مستلم: ' + (item.receivedQty || '0') + ' | متبقي: ' + (item.remainingQty || '0') + ')</div>' : '';
+
+                          rows += '<tr>' +
+                              '<td style="width:8%; text-align:center;">' + (idx + 1 + col.startIndex) + '</td>' +
+                              '<td style="width:14%; text-align:center; font-weight:800; color:#8b6b4d;">' + qty + '</td>' +
+                              '<td style="width:65%; text-align:right; font-weight:700; padding:4px 6px; white-space:normal; word-break:break-word; line-height:1.3;">' + cleanFixed + dupTag + notArrivedTag + noteTag + partialHtml + '</td>' +
+                              '<td style="width:13%; text-align:center;"><span class="print-checkbox"></span></td>' +
+                          '</tr>';
+                      });
+
+                      if (col.items.length === 0) {
+                          rows = '<tr><td colspan="4" style="text-align:center; color:#888; font-style:italic; padding:10px 0;">لا توجد نواقص</td></tr>';
+                      }
+
+                      colsHtml += '<div class="print-column" style="min-width:' + minWidth + ';">' +
+                          '<div class="column-header">' + col.title + '</div>' +
+                          '<table>' +
+                              '<thead><tr><th style="width:8%;">#</th><th style="width:14%;">العدد</th><th style="width:66%;">اسم الصنف والبيان</th><th style="width:12%;">✓</th></tr></thead>' +
+                              '<tbody>' + rows + '</tbody>' +
+                          '</table>' +
+                      '</div>';
+                  });
+
+                  document.getElementById('columnsContainer').innerHTML = colsHtml;
+              }
+
               window.onload = function() { window.print(); }
           </script>
       </body>

@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { User, Archive, SavedItem } from "../types";
+import { User, Archive, SavedItem, Item } from "../types";
 import { printInvoice, printMatrix } from "../utils/print";
 import { exportExcel } from "../utils/export";
 import { compareDatesDescending } from "../utils/date";
+import PrintMatrixFilterModal from "./PrintMatrixFilterModal";
 
 interface ArchiveProps {
   currentUser: User;
@@ -38,6 +39,7 @@ export default function ArchiveComponent({
 
   const [showEditModal, setShowEditModal] = useState<string | null>(null);
   const [editingArchive, setEditingArchive] = useState<Archive | null>(null);
+  const [matrixModalData, setMatrixModalData] = useState<{ items: Item[]; title: string; defaultWarehouse?: string } | null>(null);
   const [addWarehouse, setAddWarehouse] = useState("مخزن النحاس");
   const [customWarehouse, setCustomWarehouse] = useState("");
   const [addQty, setAddQty] = useState("");
@@ -211,8 +213,9 @@ export default function ArchiveComponent({
                     🖨️ طباعة
                   </button>
                   <button
-                    onClick={() => printMatrix(arch.items, `أرشيف مصفوفة - ${arch.date}`, arch.warehouse, savedItems)}
+                    onClick={() => setMatrixModalData({ items: arch.items, title: `أرشيف مصفوفة - ${arch.date}`, defaultWarehouse: arch.warehouse || "جميع المخازن" })}
                     className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold p-2 px-3 rounded-lg cursor-pointer transition-all"
+                    title="طباعة مصفوفة النواقص مع خيارات الفلترة"
                   >
                     ⊞ طباعة مصفوفة
                   </button>
@@ -441,6 +444,18 @@ export default function ArchiveComponent({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Print Matrix Filter Modal */}
+      {matrixModalData && (
+        <PrintMatrixFilterModal
+          isOpen={Boolean(matrixModalData)}
+          onClose={() => setMatrixModalData(null)}
+          items={matrixModalData.items}
+          title={matrixModalData.title}
+          currentUserDisplay={currentUser.displayName || currentUser.username}
+          defaultWarehouse={matrixModalData.defaultWarehouse || "جميع المخازن"}
+        />
       )}
     </div>
   );

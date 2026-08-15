@@ -3,6 +3,7 @@ import { User, Report } from "../types";
 import { printInvoice, printMatrix } from "../utils/print";
 import { exportExcel } from "../utils/export";
 import { compareDatesDescending } from "../utils/date";
+import PrintMatrixFilterModal from "./PrintMatrixFilterModal";
 
 interface ReportsProps {
   currentUser: User;
@@ -33,6 +34,7 @@ export default function Reports({
   const isManager = currentUser.role === "مدير";
   const [editingReport, setEditingReport] = useState<Report | null>(null);
   const [addItemReportModal, setAddItemReportModal] = useState<Report | null>(null);
+  const [matrixModalData, setMatrixModalData] = useState<{ items: any[]; title: string; defaultWarehouse?: string } | null>(null);
   const [modalWarehouse, setModalWarehouse] = useState("مخزن النحاس");
   const [modalCustomWarehouse, setModalCustomWarehouse] = useState("");
   const [modalQty, setModalQty] = useState("");
@@ -147,8 +149,9 @@ export default function Reports({
                   🖨️ طباعة
                 </button>
                 <button
-                  onClick={() => printMatrix(report.items, `تقرير اليوم - ${report.date}`)}
+                  onClick={() => setMatrixModalData({ items: report.items, title: `تقرير اليوم - ${report.date}`, defaultWarehouse: report.warehouse || "جميع المخازن" })}
                   className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold p-2 px-3 rounded-lg cursor-pointer transition-all"
+                  title="طباعة مصفوفة النواقص مع خيارات الفلترة"
                 >
                   ⊞ طباعة مصفوفة
                 </button>
@@ -347,6 +350,18 @@ export default function Reports({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Print Matrix Filter Modal */}
+      {matrixModalData && (
+        <PrintMatrixFilterModal
+          isOpen={Boolean(matrixModalData)}
+          onClose={() => setMatrixModalData(null)}
+          items={matrixModalData.items}
+          title={matrixModalData.title}
+          currentUserDisplay={currentUser.displayName || currentUser.username}
+          defaultWarehouse={matrixModalData.defaultWarehouse || "جميع المخازن"}
+        />
       )}
     </div>
   );

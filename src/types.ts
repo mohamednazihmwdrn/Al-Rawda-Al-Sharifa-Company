@@ -107,6 +107,8 @@ export interface SavedItem {
   price?: number;
   lastPrice?: number;
   lastUsed?: string;
+  isFavorite?: boolean;
+  defaultQty?: string;
 }
 
 export interface QuotationItem {

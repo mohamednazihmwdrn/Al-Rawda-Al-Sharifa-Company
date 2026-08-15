@@ -183,7 +183,7 @@ export default function App() {
     itemName: string;
     requiredQty: string;
     originalQty?: string;
-    receivedQty?: string;
+    pastReceivedQty?: string;
   } | null>(null);
 
   const [receiptReceivedQty, setReceiptReceivedQty] = useState("");
@@ -1079,6 +1079,38 @@ export default function App() {
     }
   };
 
+  const handleToggleFavoriteSavedItem = async (itemName: string, isFav: boolean, itemData?: Partial<SavedItem>) => {
+    const cleanName = itemName.trim();
+    if (!cleanName) return;
+
+    const existing = savedItems.find(
+      s => s.name.trim().toLowerCase() === cleanName.toLowerCase() ||
+           (s.fixedName && s.fixedName.trim().toLowerCase() === cleanName.toLowerCase())
+    );
+
+    const nowStr = `${new Date().toLocaleDateString("ar-EG")} - ${new Date().toLocaleTimeString("ar-EG")}`;
+
+    if (existing) {
+      const updated: SavedItem = {
+        ...existing,
+        isFavorite: isFav,
+        lastUsed: nowStr
+      };
+      await saveSavedItem(updated);
+    } else {
+      const newS: SavedItem = {
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        name: cleanName,
+        company: itemData?.company || "",
+        fixedName: itemData?.fixedName || cleanName,
+        note: itemData?.note || "-",
+        isFavorite: isFav,
+        lastUsed: nowStr
+      };
+      await saveSavedItem(newS);
+    }
+  };
+
   const handleEditMergedItem = (invoiceIndex: number, itemIndex: number, item: any) => {
     setEditingItem({
       id: item.id || "",
@@ -1106,26 +1138,34 @@ export default function App() {
 
     if (status === "received") {
       if (targetItem) {
-        const reqQty = targetItem.remainingQty || targetItem.company || "1";
-        setReceiptReceivedQty(reqQty);
+        const origQty = targetItem.originalQty || targetItem.company || "1";
+        const pastRec = targetItem.hasPartialReceipt && targetItem.receivedQty ? targetItem.receivedQty : "0";
+        const remQty = targetItem.remainingQty && targetItem.remainingQty !== "" ? targetItem.remainingQty : origQty;
+        
+        setReceiptReceivedQty(remQty);
         setReceiptRemainingQty("0");
         setReceiptConfirmModal({
           invoiceId,
           itemId,
           itemName: targetItem.fixedName,
-          requiredQty: reqQty
+          requiredQty: remQty,
+          originalQty: origQty,
+          pastReceivedQty: pastRec
         });
         return;
       }
     }
 
     if (targetItem) {
+      const origQty = targetItem.originalQty || targetItem.company || "1";
       const updatedItem: Item = {
         ...targetItem,
         deliveryStatus: status,
         isNotArrived: status === "delayed" ? true : targetItem.isNotArrived,
         deliveredAt: status === "received" ? getFullDate() : undefined,
-        hasPartialReceipt: status === "received" && (targetItem.remainingQty === "0" || !targetItem.remainingQty) ? false : targetItem.hasPartialReceipt
+        hasPartialReceipt: false,
+        receivedQty: status === "received" ? origQty : "0",
+        remainingQty: status === "received" ? "0" : origQty
       };
       await saveItem(updatedItem);
     }
@@ -1134,12 +1174,15 @@ export default function App() {
     if (invoiceToUpdate) {
       const updatedItems = invoiceToUpdate.items.map(it => {
         if (it.id === itemId) {
+          const origQty = it.originalQty || it.company || "1";
           return {
             ...it,
             deliveryStatus: status,
             isNotArrived: status === "delayed" ? true : it.isNotArrived,
             deliveredAt: status === "received" ? getFullDate() : undefined,
-            hasPartialReceipt: status === "received" && (it.remainingQty === "0" || !it.remainingQty) ? false : it.hasPartialReceipt
+            hasPartialReceipt: false,
+            receivedQty: status === "received" ? origQty : "0",
+            remainingQty: status === "received" ? "0" : origQty
           };
         }
         return it;
@@ -1159,10 +1202,14 @@ export default function App() {
     if (archToUpdate) {
       const updatedItems = archToUpdate.items.map(it => {
         if (it.id === itemId) {
+          const origQty = it.originalQty || it.company || "1";
           return {
             ...it,
             deliveryStatus: status,
-            deliveredAt: status === "received" ? getFullDate() : undefined
+            deliveredAt: status === "received" ? getFullDate() : undefined,
+            hasPartialReceipt: false,
+            receivedQty: status === "received" ? origQty : "0",
+            remainingQty: status === "received" ? "0" : origQty
           };
         }
         return it;
@@ -1179,10 +1226,14 @@ export default function App() {
     if (repToUpdate) {
       const updatedItems = repToUpdate.items.map(it => {
         if (it.id === itemId) {
+          const origQty = it.originalQty || it.company || "1";
           return {
             ...it,
             deliveryStatus: status,
-            deliveredAt: status === "received" ? getFullDate() : undefined
+            deliveredAt: status === "received" ? getFullDate() : undefined,
+            hasPartialReceipt: false,
+            receivedQty: status === "received" ? origQty : "0",
+            remainingQty: status === "received" ? "0" : origQty
           };
         }
         return it;
@@ -1231,41 +1282,35 @@ export default function App() {
     }
     if (!itemToUpdate) return;
 
-    // Determine original quantity
-    const originalQty = itemToUpdate.originalQty || itemToUpdate.company;
-    
-    const cleanRemainingStr = (remainingNowStr || "").trim();
-    const cleanReceivedStr = (receivedNowStr || "").trim();
+    // Determine original total quantity
+    const originalQty = itemToUpdate.originalQty || itemToUpdate.company || "1";
+    let pastReceived = parseFloat(itemToUpdate.hasPartialReceipt && itemToUpdate.receivedQty ? itemToUpdate.receivedQty : "0");
+    if (isNaN(pastReceived)) pastReceived = 0;
 
-    const reqNum = parseFloat(itemToUpdate.remainingQty || itemToUpdate.company || "1");
-    let receivedNowNum = parseFloat(cleanReceivedStr);
-    if (isNaN(receivedNowNum)) {
-      receivedNowNum = isNaN(reqNum) ? 1 : reqNum;
+    const cleanReceivedStr = (receivedNowStr || "").trim();
+    const cleanRemainingStr = (remainingNowStr || "").trim();
+
+    let recNowNum = parseFloat(cleanReceivedStr);
+    if (isNaN(recNowNum)) {
+      recNowNum = 0;
     }
+
+    const newCumulativeReceived = (pastReceived + recNowNum).toString();
 
     let remainingVal = parseFloat(cleanRemainingStr);
     if (isNaN(remainingVal)) {
-      if (cleanRemainingStr === "" || cleanRemainingStr === "0") {
-        remainingVal = 0;
-      } else {
-        remainingVal = Math.max(0, (isNaN(reqNum) ? 0 : reqNum) - receivedNowNum);
-      }
+      const curRem = parseFloat(itemToUpdate.remainingQty || itemToUpdate.company || "1") || 0;
+      remainingVal = Math.max(0, curRem - recNowNum);
     }
 
     const isFullyReceived = remainingVal <= 0;
 
-    // Cumulative receivedQty
-    let pastReceived = parseFloat(itemToUpdate.receivedQty || "0");
-    if (isNaN(pastReceived)) pastReceived = 0;
-
-    const cumulativeReceived = (pastReceived + receivedNowNum).toString();
-
     const updatedItem: Item = {
       ...itemToUpdate,
       originalQty,
-      receivedQty: isFullyReceived ? originalQty : cumulativeReceived,
+      receivedQty: isFullyReceived ? originalQty : newCumulativeReceived,
       remainingQty: isFullyReceived ? "0" : remainingVal.toString(),
-      hasPartialReceipt: !isFullyReceived,
+      hasPartialReceipt: !isFullyReceived && parseFloat(newCumulativeReceived) > 0 && remainingVal > 0,
       deliveryStatus: isFullyReceived ? "received" : "delayed",
       deliveredAt: isFullyReceived ? getFullDate() : undefined
     };
@@ -2168,6 +2213,8 @@ export default function App() {
             items={items}
             customCompanies={customCompanies}
             onSaveCart={handleSaveCart}
+            onToggleFavoriteItem={handleToggleFavoriteSavedItem}
+            onDeleteSavedItem={deleteSavedItem}
             onSaveItemToDatabase={(item) => {
               if (!item.name?.trim()) return;
 
@@ -2179,7 +2226,14 @@ export default function App() {
               );
 
               if (isAlreadySaved) {
-                return; // Already exists, skip creating duplicate template
+                // If it already exists and isFavorite was supplied, update it
+                const existing = savedItems.find(
+                  s => s.name.trim().toLowerCase() === item.name!.trim().toLowerCase()
+                );
+                if (existing && item.isFavorite !== undefined && existing.isFavorite !== item.isFavorite) {
+                  saveSavedItem({ ...existing, isFavorite: item.isFavorite });
+                }
+                return;
               }
 
               // Create template in background
@@ -2189,6 +2243,7 @@ export default function App() {
                 company: item.company || "",
                 fixedName: item.fixedName || "",
                 note: item.note || "",
+                isFavorite: item.isFavorite || false,
                 lastUsed: item.lastUsed || new Date().toISOString()
               };
               saveSavedItem(newS);
@@ -2625,24 +2680,35 @@ export default function App() {
                                     </div>
                                   </div>
                                   <div className="space-y-2">
-                                    {whInvoiceItems.map((item, idx) => (
-                                      <div key={`${inv.id}-${item.id || idx}-${idx}`} className="p-2.5 bg-gray-50 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
-                                        <div>
-                                          <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2 py-0.5 rounded text-[10px] ml-2">مطلوب: {item.company}</span>
-                                          <strong className="text-gray-800">{item.fixedName}</strong>
-                                          <span className="text-gray-500 mr-2">{item.description && item.description !== "-" && `(${item.description})`}</span>
-                                          {item.note && <p className="text-[10px] text-gray-400 mt-1">📝 ملاحظة: {item.note}</p>}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          {item.deliveryStatus === "received" ? (
-                                            <span className="text-emerald-600 font-extrabold text-[10px]">✓ تم الاستلام بالكامل</span>
-                                          ) : item.deliveryStatus === "delayed" ? (
-                                            <span className="text-red-500 font-extrabold text-[10px]">✖ لم يصل بعد</span>
-                                          ) : item.hasPartialReceipt ? (
-                                            <span className="text-amber-600 font-extrabold text-[10px]">🟡 تم الاستلام جزئياً (المتبقي: {item.remainingQty})</span>
-                                          ) : (
-                                            <span className="text-gray-400 font-bold text-[10px]">⏳ بانتظار الشحن والاستلام</span>
-                                          )}
+                                    {whInvoiceItems.map((item, idx) => {
+                                      const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
+                                      return (
+                                        <div key={`${inv.id}-${item.id || idx}-${idx}`} className="p-2.5 bg-gray-50 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
+                                          <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              {isPartial ? (
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                  <span className="bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded text-[10px]">🟡 جزئي</span>
+                                                  <span className="text-[11px] font-bold text-gray-700">مطلوب: <b className="text-gray-900">{item.originalQty || item.company}</b> | مستلم: <b className="text-emerald-700">{item.receivedQty || "0"}</b> | متبقي: <b className="text-red-700">{item.remainingQty || "0"}</b></span>
+                                                </div>
+                                              ) : (
+                                                <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2 py-0.5 rounded text-[10px] ml-2">مطلوب: {item.company}</span>
+                                              )}
+                                              <strong className="text-gray-800">{item.fixedName}</strong>
+                                              <span className="text-gray-500 mr-2">{item.description && item.description !== "-" && `(${item.description})`}</span>
+                                            </div>
+                                            {item.note && <p className="text-[10px] text-gray-400 mt-1">📝 ملاحظة: {item.note}</p>}
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            {item.deliveryStatus === "received" ? (
+                                              <span className="text-emerald-600 font-extrabold text-[10px]">✓ تم الاستلام بالكامل</span>
+                                            ) : isPartial ? (
+                                              <span className="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded font-extrabold text-[10px]">🟡 استلام جزئي</span>
+                                            ) : item.deliveryStatus === "delayed" ? (
+                                              <span className="text-red-500 font-extrabold text-[10px]">✖ لم يصل بعد</span>
+                                            ) : (
+                                              <span className="text-gray-400 font-bold text-[10px]">⏳ بانتظار الشحن والاستلام</span>
+                                            )}
                                           {isManager && (
                                             <div className="flex items-center gap-1">
                                               <button
@@ -2663,8 +2729,9 @@ export default function App() {
                                           )}
                                         </div>
                                       </div>
-                                    ))}
-                                  </div>
+                                    );
+                                  })}
+                                </div>
                                 </div>
                               )}
                             </div>
@@ -2716,10 +2783,11 @@ export default function App() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
                         onClick={handlePrintDailyReceiptReportForWh}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs p-2 px-3.5 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                        title="طباعة تقرير كافة الأصناف التي تم استلامها اليوم"
+                        className="bg-[#8b6b4d] hover:bg-[#705238] text-white font-extrabold text-xs p-2.5 px-4 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                        title="طباعة تقرير مفصل بالأصناف المستلمة حالياً في هذا المخزن فقط"
                       >
-                        📄 🖨️ تقرير الاستلام اليومي (PDF)
+                        <span>🖨️</span>
+                        <span>طباعة التقرير</span>
                       </button>
                       <span className="text-xs bg-emerald-50 text-emerald-800 border border-emerald-100 px-3 py-1.5 rounded-xl font-bold">
                         عدد الفواتير: {approvedInvs.length}
@@ -2738,6 +2806,26 @@ export default function App() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <strong className="text-sm font-bold text-[#1e2b3c]">📄 بيان النواقص المعتمد رقم #{inv.invoiceNumber}</strong>
                               <span className="text-xs text-gray-400 mr-2">التاريخ: {inv.date}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const invWhReceived = whInvoiceItems.filter(it => it.deliveryStatus === "received" || it.hasPartialReceipt || (it.receivedQty && it.receivedQty !== "0"));
+                                  if (invWhReceived.length === 0) {
+                                    alert(`⚠️ لا توجد أصناف مستلمة في فاتورة #${inv.invoiceNumber} حتى الآن لطباعة التقرير.`);
+                                    return;
+                                  }
+                                  printDailyReceiptReport(
+                                    invWhReceived,
+                                    `تقرير الأصناف المستلمة - فاتورة #${inv.invoiceNumber} (${whName})`,
+                                    whName,
+                                    currentUser.displayName || currentUser.username
+                                  );
+                                }}
+                                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-bold p-1 px-2.5 rounded-lg cursor-pointer border border-emerald-200 flex items-center gap-1 transition-all"
+                                title="طباعة تقرير الأصناف المستلمة لهذه الفاتورة فقط"
+                              >
+                                <span>🖨️ طباعة التقرير</span>
+                              </button>
                               {isManager && (
                                 <button
                                   onClick={(e) => {
@@ -2766,9 +2854,10 @@ export default function App() {
                                   <div>
                                     <div className="flex items-center gap-2 flex-wrap">
                                       {item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0" ? (
-                                        <span className="bg-red-50 text-red-700 font-extrabold px-2 py-0.5 rounded text-[10px] border border-red-100 animate-pulse">
-                                          متبقي: {item.remainingQty} (مطلوب: {item.originalQty || item.company})
-                                        </span>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded text-[10px]">🟡 جزئي</span>
+                                          <span className="text-[11px] font-bold text-gray-700">مطلوب: <b className="text-gray-900">{item.originalQty || item.company}</b> | مستلم: <b className="text-emerald-700">{item.receivedQty || "0"}</b> | متبقي: <b className="text-red-700">{item.remainingQty || "0"}</b></span>
+                                        </div>
                                       ) : (
                                         <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2 py-0.5 rounded text-[10px]">مطلوب: {item.company}</span>
                                       )}
@@ -2780,9 +2869,6 @@ export default function App() {
                                     <div className="text-[10px] text-gray-500 mt-1">
                                       <span>{item.description && item.description !== "-" && item.description}</span>
                                       {item.note && item.note !== "-" && <span className="mr-2">📝 ملاحظة: {item.note}</span>}
-                                      {item.hasPartialReceipt && item.receivedQty && item.receivedQty !== "0" && (
-                                        <span className="mr-2 text-emerald-600 font-bold">✓ مستلم سابقاً: {item.receivedQty}</span>
-                                      )}
                                     </div>
                                   </div>
 
@@ -2921,7 +3007,8 @@ export default function App() {
 
                         <div className="space-y-2">
                           {groupItems.map((item, itemIdx) => {
-                            const qtyToResend = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0"
+                            const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
+                            const qtyToResend = isPartial
                               ? item.remainingQty
                               : item.company;
 
@@ -2929,9 +3016,16 @@ export default function App() {
                               <div key={`${inv.id}-${item.id || itemIdx}-${itemIdx}`} className="p-3 bg-red-50/15 border border-red-100 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs">
                                 <div>
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded text-[10px]">
-                                      غير واصل: {qtyToResend}
-                                    </span>
+                                    {isPartial ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded text-[10px]">🟡 جزئي</span>
+                                        <span className="text-[11px] font-bold text-red-900">مطلوب: <b className="text-gray-900">{item.originalQty || item.company}</b> | مستلم: <b className="text-emerald-700">{item.receivedQty || "0"}</b> | متبقي: <b className="text-red-700">{item.remainingQty || "0"}</b></span>
+                                      </div>
+                                    ) : (
+                                      <span className="bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded text-[10px]">
+                                        غير واصل: {qtyToResend}
+                                      </span>
+                                    )}
                                     <span className="font-extrabold text-gray-800 text-sm">{item.fixedName}</span>
                                     {item.description && item.description !== "-" && (
                                       <span className="text-gray-500">({item.description})</span>
@@ -3706,19 +3800,28 @@ export default function App() {
             <div>
               <h3 className="text-xl font-bold text-[#8b6b4d] border-b pb-3 mb-4">{detailsModal.title}</h3>
               <div className="space-y-2.5">
-                {detailsModal.items.map((item, index) => (
-                  <div key={`${item.id || index}-${index}`} className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex justify-between items-center gap-4 text-sm">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400 font-bold">{index + 1}.</span>
-                        <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2 py-0.5 rounded-lg text-xs">العدد: {item.company}</span>
-                        <span className="font-extrabold text-gray-800 text-sm">{item.fixedName}</span>
+                {detailsModal.items.map((item, index) => {
+                  const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
+                  return (
+                    <div key={`${item.id || index}-${index}`} className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex justify-between items-center gap-4 text-sm">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-gray-400 font-bold">{index + 1}.</span>
+                          {isPartial ? (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="bg-amber-100 text-amber-900 border border-amber-300 font-black px-2 py-0.5 rounded text-xs">🟡 جزئي</span>
+                              <span className="text-xs font-bold text-gray-700">مطلوب: <b className="text-gray-900">{item.originalQty || item.company}</b> | مستلم: <b className="text-emerald-700">{item.receivedQty || "0"}</b> | متبقي: <b className="text-red-700">{item.remainingQty || "0"}</b></span>
+                            </div>
+                          ) : (
+                            <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2 py-0.5 rounded-lg text-xs">العدد: {item.company}</span>
+                          )}
+                          <span className="font-extrabold text-gray-800 text-sm">{item.fixedName}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {item.description && item.description !== "-" && item.description}
+                          {item.note && item.note !== "-" && ` | الملاحظة: ${item.note}`}
+                        </p>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {item.description && item.description !== "-" && item.description}
-                        {item.note && item.note !== "-" && ` | الملاحظة: ${item.note}`}
-                      </p>
-                    </div>
                     <div className="flex gap-2 items-center">
                       <span className="text-[10px] bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold p-1 px-2.5 rounded-full">
                         {item.warehouse || "جميع المخازن"}
@@ -3758,7 +3861,8 @@ export default function App() {
                       )}
                     </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
             </div>
             
@@ -3895,79 +3999,115 @@ export default function App() {
       )}
 
       {/* Partial Receipt Confirmation Modal */}
-      {receiptConfirmModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[11600] p-4 animate-fade-in">
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-emerald-500/20 text-right" dir="rtl">
-            <h3 className="text-lg font-bold text-emerald-800 dark:text-emerald-400 border-b pb-3 mb-4 flex items-center gap-2">
-              <span>🚚 تعديل الكمية وتأكيد الاستلام</span>
-            </h3>
+      {receiptConfirmModal && (() => {
+        const origQty = receiptConfirmModal.originalQty || receiptConfirmModal.requiredQty;
+        const pastRecNum = parseFloat(receiptConfirmModal.pastReceivedQty || "0") || 0;
+        const recNowNum = parseFloat(receiptReceivedQty) || 0;
+        const totalCumulativeRec = pastRecNum + recNowNum;
+        const remNum = parseFloat(receiptRemainingQty) || 0;
+        const isFull = remNum <= 0;
 
-            <div className="mb-4 bg-emerald-50/50 dark:bg-emerald-950/10 p-3 rounded-2xl border border-emerald-100/30 text-xs space-y-1">
-              <div className="text-gray-400">اسم الصنف المعني بالاستلام:</div>
-              <strong className="text-sm font-black text-gray-800 dark:text-white block">{receiptConfirmModal.itemName}</strong>
-              <div className="text-[11px] text-amber-700 dark:text-amber-400 pt-1 font-medium border-t border-emerald-200/40 dark:border-emerald-800/40 mt-1">
-                💡 إذا استلمت الكمية بالكامل اترك العدد كما هو وتأكد بالضغط على (تأكيد الاستلام). أما إن استلمت عدداً أقل، يمكنك تعديل العدد المستلم وستُحفظ الأعداد المتبقية تلقائياً في قسم الأصناف الباقية من الطلبية.
-              </div>
-            </div>
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[11600] p-4 animate-fade-in">
+            <div className="bg-white dark:bg-[#1a1a1a] rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-emerald-500/20 text-right" dir="rtl">
+              <h3 className="text-lg font-bold text-emerald-800 dark:text-emerald-400 border-b pb-3 mb-4 flex items-center gap-2">
+                <span>🚚 تعديل الكمية وتأكيد الاستلام</span>
+              </h3>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1.5">مطلوب (الكمية المطلوبة):</label>
-                <input
-                  type="text"
-                  readOnly
-                  disabled
-                  value={receiptConfirmModal.requiredQty}
-                  className="w-full p-2.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-black select-none"
-                />
+              <div className="mb-4 bg-emerald-50/50 dark:bg-emerald-950/10 p-3 rounded-2xl border border-emerald-100/30 text-xs space-y-1">
+                <div className="text-gray-400">اسم الصنف المعني بالاستلام:</div>
+                <strong className="text-sm font-black text-gray-800 dark:text-white block">{receiptConfirmModal.itemName}</strong>
+                <div className="text-[11px] text-amber-700 dark:text-amber-400 pt-1 font-medium border-t border-emerald-200/40 dark:border-emerald-800/40 mt-1">
+                  💡 إذا استلمت الكمية بالكامل اترك العدد كما هو واضغط (تأكيد الاستلام). أما إن استلمت عدداً أقل، اكتب الكمية المستلمة وسيتم توثيق المتبقي وتمييز هذا البند فقط بعلامة (جزئي).
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-200 mb-1.5">مستلم (الكمية المستلمة حالياً):</label>
-                <input
-                  type="text"
-                  value={receiptReceivedQty}
-                  onChange={(e) => handleReceivedQtyChange(e.target.value)}
-                  className="w-full p-2.5 bg-white dark:bg-gray-900 border border-emerald-600 dark:border-emerald-500 rounded-xl text-sm font-black text-emerald-700 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 text-center"
-                  placeholder="مثال: 5، 10 علب، الخ"
-                  autoFocus
-                />
+              <div className="space-y-3.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">المطلوب الكلي:</label>
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={origQty}
+                      className="w-full p-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-black text-center select-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">المطلوب حالياً:</label>
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={receiptConfirmModal.requiredQty}
+                      className="w-full p-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-black text-center select-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-200 mb-1">الكمية المستلمة الآن في هذه الشحنة:</label>
+                  <input
+                    type="text"
+                    value={receiptReceivedQty}
+                    onChange={(e) => handleReceivedQtyChange(e.target.value)}
+                    className="w-full p-2.5 bg-white dark:bg-gray-900 border-2 border-emerald-600 dark:border-emerald-500 rounded-xl text-sm font-black text-emerald-700 dark:text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center"
+                    placeholder="الكمية المستلمة الآن"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-200 mb-1">الكمية المتبقية بعد هذا الاستلام:</label>
+                  <input
+                    type="text"
+                    value={receiptRemainingQty}
+                    onChange={(e) => setReceiptRemainingQty(e.target.value)}
+                    className="w-full p-2.5 bg-white dark:bg-gray-900 border border-red-300 dark:border-red-500 rounded-xl text-sm font-black text-red-600 dark:text-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/20 text-center"
+                    placeholder="0 في حال الاستلام الكامل"
+                  />
+                </div>
+
+                {/* Outcome breakdown preview */}
+                <div className={`p-3 rounded-xl border text-xs space-y-1.5 ${isFull ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300" : "bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-300"}`}>
+                  <div className="font-bold flex items-center justify-between">
+                    <span>{isFull ? "🟢 نتيجة العملية: استلام كامل" : "🟡 نتيجة العملية: استلام جزئي"}</span>
+                    {!isFull && <span className="bg-amber-200 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 text-[10px] px-2 py-0.5 rounded-full font-black">وسم: جزئي</span>}
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-amber-200/60 dark:border-amber-800/40 flex-wrap text-[11px] font-bold">
+                    <span>مطلوب: <b className="font-black">{origQty}</b></span>
+                    <span>|</span>
+                    <span>إجمالي المستلم: <b className="font-black text-emerald-700 dark:text-emerald-400">{totalCumulativeRec}</b></span>
+                    <span>|</span>
+                    <span>المتبقي: <b className="font-black text-red-600 dark:text-red-400">{remNum}</b></span>
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-200 mb-1.5">متبقي (الكمية المتبقية):</label>
-                <input
-                  type="text"
-                  value={receiptRemainingQty}
-                  onChange={(e) => setReceiptRemainingQty(e.target.value)}
-                  className="w-full p-2.5 bg-white dark:bg-gray-900 border border-red-400 dark:border-red-500 rounded-xl text-sm font-black text-red-600 dark:text-red-400 focus:outline-none focus:ring-1 focus:ring-red-500 text-center"
-                  placeholder="0 في حال الاستلام الكامل"
-                />
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => handleConfirmPartialReceipt(
+                    receiptConfirmModal.invoiceId,
+                    receiptConfirmModal.itemId,
+                    receiptReceivedQty,
+                    receiptRemainingQty
+                  )}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
+                >
+                  ✓ تأكيد الاستلام
+                </button>
+                <button
+                  onClick={() => setReceiptConfirmModal(null)}
+                  className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  إلغاء
+                </button>
               </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => handleConfirmPartialReceipt(
-                  receiptConfirmModal.invoiceId,
-                  receiptConfirmModal.itemId,
-                  receiptReceivedQty,
-                  receiptRemainingQty
-                )}
-                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
-              >
-                ✓ تأكيد الاستلام
-              </button>
-              <button
-                onClick={() => setReceiptConfirmModal(null)}
-                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                إلغاء
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Custom Logout Confirmation Modal */}
       {showLogoutConfirm && (

@@ -3,6 +3,7 @@ import { User, Item, MergedInvoice } from "../types";
 import { AYAT, isItemInTodayWindow, getToday } from "../data/constants";
 import { printInvoice } from "../utils/print";
 import { compareDatesDescending, parseArabicOrStandardDate } from "../utils/date";
+import PrintMatrixFilterModal from "./PrintMatrixFilterModal";
 
 interface DashboardProps {
   currentUser: User;
@@ -53,6 +54,7 @@ export default function Dashboard({
 }: DashboardProps) {
   const [randomAyat, setRandomAyat] = useState<{ text: string; reference: string }>({ text: "", reference: "" });
   const [addItemModalInvoice, setAddItemModalInvoice] = useState<MergedInvoice | null>(null);
+  const [matrixModalData, setMatrixModalData] = useState<{ items: Item[]; title: string; defaultWarehouse?: string } | null>(null);
   const [modalWarehouse, setModalWarehouse] = useState("مخزن النحاس");
   const [modalCustomWarehouse, setModalCustomWarehouse] = useState("");
   const [modalQty, setModalQty] = useState("");
@@ -197,6 +199,42 @@ export default function Dashboard({
   // Calculate unreceived/pending items in approved invoices that are currently visible
   const approvedInvoices = mergedInvoices.filter(m => m.status === "approved" || m.status === "auto_approved");
 
+  // Pending Merged Invoices Awaiting Approval
+  const pendingMergedInvoices = React.useMemo(() => {
+    return mergedInvoices.filter(m => m.status === "pending");
+  }, [mergedInvoices]);
+
+  const pendingMergedItemsCount = React.useMemo(() => {
+    return pendingMergedInvoices.reduce((acc, inv) => acc + (inv.items?.length || inv.total || 0), 0);
+  }, [pendingMergedInvoices]);
+
+  // Total Items Received Today
+  const receivedTodayStats = React.useMemo(() => {
+    let count = 0;
+    let totalQty = 0;
+
+    approvedInvoices.forEach((inv) => {
+      inv.items.forEach((it) => {
+        if (!isManager && currentUser.warehouse && !(it.warehouse || "").trim().includes(currentUser.warehouse.trim())) {
+          return;
+        }
+        const isReceived = it.deliveryStatus === "received";
+        const isPartialWithReceived = Boolean(it.hasPartialReceipt && it.receivedQty && it.receivedQty !== "0");
+
+        if (isReceived || isPartialWithReceived) {
+          const checkDateStr = it.deliveredAt || it.date || inv.date;
+          if (checkDateStr && isToday(checkDateStr)) {
+            count++;
+            const q = isPartialWithReceived ? parseFloat(it.receivedQty || "0") : parseFloat(it.company || "1");
+            totalQty += isNaN(q) ? 1 : q;
+          }
+        }
+      });
+    });
+
+    return { count, totalQty };
+  }, [approvedInvoices, isManager, currentUser.warehouse]);
+
   // Comprehensive tracking for unreceived (delayed/not arrived), partial, and fully received items
   const deliveryStats = React.useMemo(() => {
     let delayedNotArrivedCount = 0; // Items marked as delayed, not arrived, or with 'لم يصل'
@@ -294,6 +332,205 @@ export default function Dashboard({
           </div>
         </div>
       )}
+
+      {/* KEY STATISTICAL CARDS: ACTIVE DEFICITS, PENDING INVOICES, RECEIVED TODAY */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="dashboard-key-stats-row">
+        {/* Card 1: Total Active Shortages */}
+        <div
+          id="stats-active-deficits-card"
+          className="bg-white dark:bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border-2 border-[#8b6b4d]/30 bg-gradient-to-br from-[#8b6b4d]/5 via-white to-white relative overflow-hidden flex flex-col justify-between transition-all hover:shadow-md hover:border-[#8b6b4d]/50"
+        >
+          <div className="space-y-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-black text-[#8b6b4d] uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="text-base">📋</span> إجمالي النواقص النشطة
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                  كافة بنود النواقص المسجلة والجارية حالياً
+                </p>
+              </div>
+              <span className="text-xs font-extrabold bg-[#8b6b4d] text-white px-2.5 py-0.5 rounded-full shadow-xs">
+                نشط الآن
+              </span>
+            </div>
+
+            <div className="pt-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-black text-[#705238] dark:text-[#c4a482]">
+                  {activeItems.length}
+                </span>
+                <span className="text-sm font-bold text-gray-500 dark:text-gray-400">
+                  صنف / بند نشط
+                </span>
+              </div>
+
+              <div className="mt-2.5 flex items-center gap-2 flex-wrap text-xs">
+                <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-bold px-2 py-0.5 rounded-md">
+                  منها {todayDeficitsCount} بند سُجّل اليوم
+                </span>
+                <span className="text-[11px] text-gray-500 font-semibold">
+                  (النحاس: {warehouseStats["مخزن النحاس"] || 0} • النادي: {warehouseStats["مخزن النادي"] || 0})
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+            <button
+              onClick={() => {
+                const el = document.getElementById("active-deficits-section");
+                if (el) el.scrollIntoView({ behavior: "smooth" });
+              }}
+              className="text-xs font-bold text-[#8b6b4d] hover:text-[#705238] flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span>عرض تفاصيل النواقص</span>
+              <span>↓</span>
+            </button>
+            {onNavigateSection && (
+              <button
+                onClick={() => onNavigateSection(isManager ? "warehouse-nahas" : (currentUser.warehouse === "مخزن النادي" ? "warehouse-nady" : "warehouse-nahas"))}
+                className="text-xs font-extrabold text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 transition-colors cursor-pointer"
+              >
+                <span>الانتقال للمستودع ←</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Card 2: Pending Invoices Awaiting Approval */}
+        <div
+          id="stats-pending-invoices-card"
+          className={`bg-white dark:bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border-2 ${
+            pendingMergedInvoices.length > 0
+              ? "border-amber-400/80 bg-gradient-to-br from-amber-50/50 via-white to-white"
+              : "border-gray-200 bg-white"
+          } relative overflow-hidden flex flex-col justify-between transition-all hover:shadow-md`}
+        >
+          <div className="space-y-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-black text-amber-800 dark:text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="text-base">⏳</span> فواتير بانتظار الاعتماد
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                  فواتير مدمجة مرسلة تنتظر مراجعة المدير
+                </p>
+              </div>
+              <span
+                className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full shadow-xs ${
+                  pendingMergedInvoices.length > 0
+                    ? "bg-amber-500 text-white animate-pulse"
+                    : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                }`}
+              >
+                {pendingMergedInvoices.length > 0 ? "معلقة للمراجعة" : "لا توجد معلقات"}
+              </span>
+            </div>
+
+            <div className="pt-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-black text-amber-900 dark:text-amber-300">
+                  {pendingMergedInvoices.length}
+                </span>
+                <span className="text-sm font-bold text-gray-500 dark:text-gray-400">
+                  فاتورة مدمجة معلقة
+                </span>
+              </div>
+
+              <div className="mt-2.5 text-xs">
+                {pendingMergedInvoices.length > 0 ? (
+                  <span className="bg-amber-100/80 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200 font-bold px-2 py-0.5 rounded-md inline-block">
+                    تحتوي على {pendingMergedItemsCount} صنف بانتظار الاعتماد
+                  </span>
+                ) : (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                    ✅ تم اعتماد وتحديث كافة الفواتير الواردة
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+            <button
+              onClick={() => {
+                const el = document.getElementById("pending-merged-invoices-section");
+                if (el) el.scrollIntoView({ behavior: "smooth" });
+              }}
+              className="text-xs font-bold text-amber-800 hover:text-amber-950 dark:text-amber-300 flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span>مراجعة الفواتير</span>
+              <span>↓</span>
+            </button>
+            <span className="text-[11px] text-gray-400 font-semibold">
+              {isManager ? "صلاحية المدير العام" : "بانتظار موافقة الإدارة"}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: Total Items Received Today */}
+        <div
+          id="stats-received-today-card"
+          className="bg-white dark:bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border-2 border-emerald-300/80 bg-gradient-to-br from-emerald-50/40 via-white to-white relative overflow-hidden flex flex-col justify-between transition-all hover:shadow-md hover:border-emerald-400"
+        >
+          <div className="space-y-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="text-base">✅</span> الأصناف المستلمة اليوم
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                  بنود تم تأكيد توريدها واستلامها بتاريخ اليوم
+                </p>
+              </div>
+              <span className="text-xs font-extrabold bg-emerald-600 text-white px-2.5 py-0.5 rounded-full shadow-xs">
+                استلام اليوم
+              </span>
+            </div>
+
+            <div className="pt-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-black text-emerald-800 dark:text-emerald-300">
+                  {receivedTodayStats.count}
+                </span>
+                <span className="text-sm font-bold text-gray-500 dark:text-gray-400">
+                  صنف مستلم اليوم
+                </span>
+              </div>
+
+              <div className="mt-2.5 text-xs">
+                {receivedTodayStats.totalQty > 0 ? (
+                  <span className="bg-emerald-100/80 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 font-bold px-2 py-0.5 rounded-md inline-block">
+                    إجمالي الكميات المستلمة اليوم: {receivedTodayStats.totalQty} وحدة
+                  </span>
+                ) : (
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">
+                    {receivedTodayStats.count > 0 ? "تم تأكيد وصول البنود بنجاح" : "لم تسجل مستلمات جديدة اليوم بعد"}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+            {onNavigateSection ? (
+              <button
+                onClick={() => onNavigateSection(isManager ? "manager-received" : (currentUser.warehouse === "مخزن النادي" ? "warehouse-nady" : "warehouse-nahas"))}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <span>عرض سجل المستلمات</span>
+                <span>←</span>
+              </button>
+            ) : (
+              <span className="text-xs text-emerald-700 font-bold">سجل التوريد اليومي</span>
+            )}
+            <span className="text-[11px] text-gray-400 font-semibold">
+              تحديث مباشر
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Cards Row 1 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -534,7 +771,7 @@ export default function Dashboard({
       {/* Row 2: Invoices and Pending Items */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Real-time active deficits */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
+        <div id="active-deficits-section" className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between scroll-mt-6">
           <div>
             <h3 className="text-lg font-bold text-gray-800 border-r-4 border-[#8b6b4d] pr-3 mb-4">📋 النواقص النشطة (آخر 5 بنود)</h3>
             <div className="space-y-2.5">
@@ -565,7 +802,7 @@ export default function Dashboard({
         </div>
 
         {/* Merged Invoices for Manager */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+        <div id="pending-merged-invoices-section" className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 scroll-mt-6">
           <h3 className="text-lg font-bold text-gray-800 border-r-4 border-[#8b6b4d] pr-3 mb-4">📨 الفواتير المدمجة بانتظار الاعتماد</h3>
           <div className="space-y-4 max-h-[350px] overflow-y-auto">
             {!isManager ? (
@@ -666,8 +903,9 @@ export default function Dashboard({
                       🖨️ طباعة
                     </button>
                     <button
-                      onClick={() => onPrintMergedMatrix(mergedInvoices.indexOf(inv))}
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
+                      onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
+                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-xs"
+                      title="طباعة مصفوفة النواقص مع خيارات الفلترة"
                     >
                       ⊞ طباعة مصفوفة
                     </button>
@@ -834,8 +1072,9 @@ export default function Dashboard({
                       🖨️ طباعة
                     </button>
                     <button
-                      onClick={() => onPrintMergedMatrix(mergedInvoices.indexOf(inv))}
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
+                      onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة معتمدة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
+                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-xs"
+                      title="طباعة مصفوفة النواقص مع خيارات الفلترة"
                     >
                       ⊞ طباعة مصفوفة
                     </button>
@@ -1186,6 +1425,18 @@ export default function Dashboard({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Print Matrix Filter Modal */}
+      {matrixModalData && (
+        <PrintMatrixFilterModal
+          isOpen={Boolean(matrixModalData)}
+          onClose={() => setMatrixModalData(null)}
+          items={matrixModalData.items}
+          title={matrixModalData.title}
+          currentUserDisplay={currentUser.displayName || currentUser.username}
+          defaultWarehouse={matrixModalData.defaultWarehouse || "جميع المخازن"}
+        />
       )}
     </div>
   );
