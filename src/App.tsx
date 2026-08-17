@@ -1559,15 +1559,19 @@ export default function App() {
         // 1. Mark original item as resent
         const originalItem = items.find(i => i.id === itemToResend.id);
         if (originalItem) {
-          await saveItem({
+          const resentUpdatedItem = {
             ...originalItem,
             resent: true,
             resentToDate: today
-          });
+          };
+          await saveItem(resentUpdatedItem);
+          setItems(prev => prev.map(i => i.id === itemToResend.id ? resentUpdatedItem : i));
         }
       }
 
-      // 2. Mark resent status inside original MergedInvoices
+      // 2. Mark resent status inside original MergedInvoices & archives
+      const resentIds = new Set(itemsToResend.map(i => i.id));
+
       for (const itemToResend of itemsToResend) {
         const invToUpdate = mergedInvoices.find(m => m.items?.some(it => it.id === itemToResend.id));
         if (invToUpdate) {
@@ -1577,11 +1581,30 @@ export default function App() {
             }
             return it;
           });
-          await saveMergedInvoice({
+          const updatedMergedInv = {
             ...invToUpdate,
             items: updatedItems,
             total: updatedItems.length
+          };
+          await saveMergedInvoice(updatedMergedInv);
+          setMergedInvoices(prev => prev.map(m => m.id === invToUpdate.id ? updatedMergedInv : m));
+        }
+
+        const archToUpdate = archives.find(a => a.items?.some(it => it.id === itemToResend.id));
+        if (archToUpdate) {
+          const updatedItems = archToUpdate.items.map(it => {
+            if (it.id === itemToResend.id) {
+              return { ...it, resent: true, resentToDate: today };
+            }
+            return it;
           });
+          const updatedArch = {
+            ...archToUpdate,
+            items: updatedItems,
+            total: updatedItems.length
+          };
+          await saveArchive(updatedArch);
+          setArchives(prev => prev.map(a => a.id === archToUpdate.id ? updatedArch : a));
         }
       }
 
