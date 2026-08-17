@@ -9,7 +9,17 @@ import {
   SavedItem, 
   Quotation 
 } from "../types";
-import { bulkRestoreDatabase, clearAllDatabaseTables, clearExperimentalOperationsOnly, CustomCompany, CompanyInfo, getMergedCompanyMap } from "../services/dbService";
+import { 
+  bulkRestoreDatabase, 
+  clearAllDatabaseTables, 
+  clearExperimentalOperationsOnly, 
+  CustomCompany, 
+  CompanyInfo, 
+  getMergedCompanyMap,
+  syncAllLocalDataToFirestore,
+  recoverPreviousWork,
+  resetQuotaCircuitBreaker
+} from "../services/dbService";
 import { companyItemsMap } from "../data/constants";
 
 // Safe Base64 encode supporting UTF-8 / Arabic characters
@@ -148,6 +158,27 @@ export default function Settings({
   // Custom Encrypted Code Backup
   const [generatedBackupCode, setGeneratedBackupCode] = useState("");
   const [pasteBackupCode, setPasteBackupCode] = useState("");
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+
+  const handleSyncToNewCloud = async () => {
+    setIsSyncingCloud(true);
+    try {
+      resetQuotaCircuitBreaker();
+      const res = await syncAllLocalDataToFirestore();
+      alert(res.message);
+      onDatabaseRefreshed();
+    } catch (err: any) {
+      alert("❌ حدث خطأ أثناء المزامنة: " + (err?.message || ""));
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
+  const handleRecoverPrevious = () => {
+    const res = recoverPreviousWork();
+    alert(`✅ تم فحص وتأكيد جاهزية البيانات بنجاح!\n${res.details}`);
+    onDatabaseRefreshed();
+  };
 
   // Saved Items management states
   const [savedItemsSearch, setSavedItemsSearch] = useState("");
@@ -481,9 +512,39 @@ export default function Settings({
 
         {/* Database & Backup Actions */}
         <div className="space-y-4">
-          <h4 className="font-bold text-[#8b6b4d] text-base border-r-2 border-[#8b6b4d] pr-2">💾 النسخ الاحتياطي والاسترداد</h4>
-          <p className="text-xs text-gray-400 font-semibold">تصدير كامل بيانات المستخدمين، والمخازن، والتقارير، والفواتير، والأرشيف واستعادتها لاحقاً بكل سهولة ودقة.</p>
+          <h4 className="font-bold text-[#8b6b4d] text-base border-r-2 border-[#8b6b4d] pr-2">💾 المزامنة السحابية وقاعدة البيانات والنسخ الاحتياطي</h4>
+          <p className="text-xs text-gray-400 font-semibold">مزامنة البيانات وشغل اليوم إلى قاعدة البيانات السحابية واستعادة كافة السجلات القديمة وحفظ النسخ الاحتياطية بأمان تام.</p>
           
+          {/* Cloud Sync & Migration Card */}
+          <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                ☁️ المزامنة السحابية ونقل الشغل
+              </span>
+              <span className="text-[11px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                نشط وآمن 100%
+              </span>
+            </div>
+            <p className="text-[11px] text-emerald-800 leading-relaxed">
+              يقوم هذا الزر بنقل ومزامنة كافة النواقص الحالية، الفواتير المجمعة، أرشيف المخازن، الكتالوج، وحسابات المستخدمين إلى قاعدة البيانات السحابية لتظهر لجميع الفروع فوراً.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={handleSyncToNewCloud}
+                disabled={isSyncingCloud}
+                className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex justify-center items-center gap-1.5 shadow-xs"
+              >
+                {isSyncingCloud ? "⏳ جاري المزامنة..." : "🚀 مزامنة ونقل الشغل للسحابة"}
+              </button>
+              <button
+                onClick={handleRecoverPrevious}
+                className="py-2 px-3 bg-[#1e2b3c] hover:bg-[#2c3e50] text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex justify-center items-center gap-1.5 shadow-xs"
+              >
+                🔍 فحص وجاهزية السجلات القديمة
+              </button>
+            </div>
+          </div>
+
           <div className="flex flex-col gap-2 pt-2">
             <button
               onClick={handleBackup}

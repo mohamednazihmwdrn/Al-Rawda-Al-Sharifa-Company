@@ -10,17 +10,17 @@ interface DashboardProps {
   items: Item[];
   mergedInvoices: MergedInvoice[];
   users: { [key: string]: User };
-  onApproveMerged: (index: number) => void;
-  onRejectMerged: (index: number) => void;
-  onDeleteMerged: (index: number) => void;
+  onApproveMerged: (indexOrId: number | string) => void;
+  onRejectMerged: (indexOrId: number | string) => void;
+  onDeleteMerged: (indexOrId: number | string) => void;
   onApproveWaiting: (id: string) => void;
   onRejectWaiting: (id: string) => void;
   onRestoreDeleted: (id: string) => void;
   onPermanentDelete: (id: string) => void;
-  onPrintMergedNormal: (index: number) => void;
-  onPrintMergedMatrix: (index: number) => void;
-  onDeleteMergedItem?: (invoiceIndex: number, itemIndex: number) => void;
-  onEditMergedItem?: (invoiceIndex: number, itemIndex: number, item: any) => void;
+  onPrintMergedNormal: (indexOrId: number | string) => void;
+  onPrintMergedMatrix: (indexOrId: number | string) => void;
+  onDeleteMergedItem?: (invoiceIndexOrId: number | string, itemIndex: number) => void;
+  onEditMergedItem?: (invoiceIndexOrId: number | string, itemIndex: number, item: any) => void;
   onDeleteWaitingItem?: (id: string) => void;
   onEditWaitingItem?: (item: any) => void;
   onUpdateItemDeliveryStatus?: (invoiceId: string, itemId: string, status: "received" | "delayed") => void;
@@ -847,7 +847,7 @@ export default function Dashboard({
                             <span className="bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">{item.warehouse}</span>
                             {onDeleteMergedItem && (
                               <button
-                                onClick={() => onDeleteMergedItem(mergedInvoices.indexOf(inv), iIndex)}
+                                onClick={() => onDeleteMergedItem(inv.id, iIndex)}
                                 className="text-red-500 hover:text-red-700 font-bold p-1 hover:bg-red-50 rounded cursor-pointer"
                                 title="حذف البند"
                               >
@@ -856,7 +856,7 @@ export default function Dashboard({
                             )}
                             {onEditMergedItem && (
                               <button
-                                onClick={() => onEditMergedItem(mergedInvoices.indexOf(inv), iIndex, item)}
+                                onClick={() => onEditMergedItem(inv.id, iIndex, item)}
                                 className="text-amber-600 hover:text-amber-800 font-bold p-1 hover:bg-amber-50 rounded cursor-pointer"
                                 title="تعديل البند"
                               >
@@ -892,13 +892,13 @@ export default function Dashboard({
 
                   <div className="flex flex-wrap gap-2 pt-1">
                     <button
-                      onClick={() => onApproveMerged(mergedInvoices.indexOf(inv))}
+                      onClick={() => onApproveMerged(inv.id)}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
                     >
                       ✓ اعتماد الكل
                     </button>
                     <button
-                      onClick={() => onPrintMergedNormal(mergedInvoices.indexOf(inv))}
+                      onClick={() => onPrintMergedNormal(inv.id)}
                       className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
                     >
                       🖨️ طباعة
@@ -911,13 +911,13 @@ export default function Dashboard({
                       ⊞ طباعة مصفوفة
                     </button>
                     <button
-                      onClick={() => onRejectMerged(mergedInvoices.indexOf(inv))}
+                      onClick={() => onRejectMerged(inv.id)}
                       className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
                     >
                       ✕ رفض الكل
                     </button>
                     <button
-                      onClick={() => onDeleteMerged(mergedInvoices.indexOf(inv))}
+                      onClick={() => onDeleteMerged(inv.id)}
                       className="bg-gray-500 hover:bg-gray-600 text-white text-xs font-semibold p-2 px-2.5 rounded-xl transition-all cursor-pointer"
                     >
                       🗑️ حذف الفاتورة

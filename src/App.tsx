@@ -54,7 +54,9 @@ import {
   moveToTrash,
   permanentlyDeleteFromTrash,
   clearAllTrash,
-  autoCleanOldTrash
+  autoCleanOldTrash,
+  syncAllLocalDataToFirestore,
+  seedCatalogIfEmpty
 } from "./services/dbService";
 
 // Helper constants & utils
@@ -232,6 +234,7 @@ export default function App() {
   useEffect(() => {
     testConnection();
     seedUsersIfEmpty();
+    seedCatalogIfEmpty();
 
     // Check if user has active session saved in local storage
     try {
@@ -287,43 +290,13 @@ export default function App() {
     };
   }, []);
 
-  // Audio helper functions
+  // Audio helper functions (Disabled per user request)
   const playNotificationChime = () => {
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const playTone = (freq: number, start: number, duration: number) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, start);
-        gain.gain.setValueAtTime(0.15, start);
-        gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(start);
-        osc.stop(start + duration);
-      };
-      const now = audioCtx.currentTime;
-      playTone(523.25, now, 0.3);
-      playTone(659.25, now + 0.1, 0.3);
-      playTone(783.99, now + 0.2, 0.4);
-    } catch (e) {
-      console.error("Web Audio chime failed:", e);
-    }
+    // Audio disabled
   };
 
-  const speakArabic = (text: string) => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ar-SA';
-    utterance.rate = 0.9;
-    const voices = window.speechSynthesis.getVoices();
-    const arabicVoice = voices.find(voice => voice.lang.startsWith('ar'));
-    if (arabicVoice) {
-      utterance.voice = arabicVoice;
-    }
-    window.speechSynthesis.speak(utterance);
+  const speakArabic = (_text: string) => {
+    // Speech synthesis disabled
   };
 
 
@@ -802,6 +775,10 @@ export default function App() {
 
     // 2. Update item statuses in database in parallel
     await Promise.all(updatedItems.map(item => saveItem(item)));
+    setItems(prev => {
+      const updatedMap = new Map(updatedItems.map(i => [i.id, i]));
+      return prev.map(it => updatedMap.has(it.id) ? updatedMap.get(it.id)! : it);
+    });
 
     // 3. Set status approved on merged invoice with updated items in Firestore
     const approvedInvoice: MergedInvoice = {
@@ -874,8 +851,13 @@ export default function App() {
     alert(`✅ تم اعتماد الفاتورة المدمجة #${invoice.invoiceNumber} بنجاح وانتقالها إلى قائمة الفواتير المعتمدة والأرشيف!`);
   };
 
-  const handleRejectMerged = async (index: number) => {
-    const invoice = mergedInvoices[index];
+  const handleRejectMerged = async (indexOrId: number | string) => {
+    let invoice: MergedInvoice | undefined;
+    if (typeof indexOrId === "number") {
+      invoice = mergedInvoices[indexOrId];
+    } else {
+      invoice = mergedInvoices.find(m => m.id === indexOrId);
+    }
     if (!invoice) return;
 
     if (!confirm("تأكيد رفض الفاتورة المدمجة بالكامل وإعادتها لمستودعات الفروع؟")) return;
@@ -897,8 +879,13 @@ export default function App() {
     alert(`❌ تم رفض وإعادة الفاتورة #${invoice.invoiceNumber}`);
   };
 
-  const handleDeleteMerged = async (index: number) => {
-    const invoice = mergedInvoices[index];
+  const handleDeleteMerged = async (indexOrId: number | string) => {
+    let invoice: MergedInvoice | undefined;
+    if (typeof indexOrId === "number") {
+      invoice = mergedInvoices[indexOrId];
+    } else {
+      invoice = mergedInvoices.find(m => m.id === indexOrId);
+    }
     if (!invoice) return;
 
     if (confirm(`تأكيد حذف الفاتورة المدمجة #${invoice.invoiceNumber} ونقلها إلى سلة المحذوفات؟`)) {
@@ -921,8 +908,13 @@ export default function App() {
     }
   };
 
-  const handleDeleteMergedItem = async (invoiceIndex: number, itemIndex: number) => {
-    const inv = mergedInvoices[invoiceIndex];
+  const handleDeleteMergedItem = async (invoiceIndexOrId: number | string, itemIndex: number) => {
+    let inv: MergedInvoice | undefined;
+    if (typeof invoiceIndexOrId === "number") {
+      inv = mergedInvoices[invoiceIndexOrId];
+    } else {
+      inv = mergedInvoices.find(m => m.id === invoiceIndexOrId);
+    }
     if (!inv) return;
     const item = inv.items[itemIndex];
     if (!item) return;
@@ -1121,11 +1113,14 @@ export default function App() {
     }
   };
 
-  const handleEditMergedItem = (invoiceIndex: number, itemIndex: number, item: any) => {
+  const handleEditMergedItem = (invoiceIndexOrId: number | string, itemIndex: number, item: any) => {
+    let invId = typeof invoiceIndexOrId === "number" ? mergedInvoices[invoiceIndexOrId]?.id : invoiceIndexOrId;
+    if (!invId) invId = String(invoiceIndexOrId);
+
     setEditingItem({
       id: item.id || "",
       index: itemIndex,
-      parentId: mergedInvoices[invoiceIndex].id,
+      parentId: invId,
       parentType: "mergedInvoices",
       company: item.company,
       fixedName: item.fixedName || "",
@@ -2232,12 +2227,14 @@ export default function App() {
             onRejectWaiting={handleRejectWaitingItem}
             onRestoreDeleted={handleRestoreDeletedItem}
             onPermanentDelete={handlePermanentDeleteItem}
-            onPrintMergedNormal={(idx) => {
-              const inv = mergedInvoices[idx];
+            onPrintMergedNormal={(indexOrId) => {
+              const inv = typeof indexOrId === "number" ? mergedInvoices[indexOrId] : mergedInvoices.find(m => m.id === indexOrId);
+              if (!inv) return;
               printInvoice(inv.items, `فاتورة مدمجة #${inv.invoiceNumber} - ${inv.date}`, "جميع المخازن", currentUser.displayName || currentUser.username);
             }}
-            onPrintMergedMatrix={(idx) => {
-              const inv = mergedInvoices[idx];
+            onPrintMergedMatrix={(indexOrId) => {
+              const inv = typeof indexOrId === "number" ? mergedInvoices[indexOrId] : mergedInvoices.find(m => m.id === indexOrId);
+              if (!inv) return;
               printMatrix(inv.items, `بيان النواقص #${inv.invoiceNumber}`, "جميع المخازن", undefined, currentUser.displayName || currentUser.username);
             }}
             onDeleteMergedItem={handleDeleteMergedItem}
