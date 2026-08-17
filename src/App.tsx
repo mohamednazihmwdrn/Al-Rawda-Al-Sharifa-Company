@@ -60,6 +60,7 @@ import {
 // Helper constants & utils
 import { getToday, getNow, getFullDate, AYAT, isItemInTodayWindow } from "./data/constants";
 import { printInvoice, printMatrix, getPrintUserName, printDailyReceiptReport } from "./utils/print";
+import { isWarehouseMatch } from "./utils/date";
 
 // Sub-components
 import Login from "./components/Login";
@@ -781,8 +782,13 @@ export default function App() {
   };
 
   // === Manager's Merged Invoices approvals/rejections ===
-  const handleApproveMerged = async (index: number) => {
-    const invoice = mergedInvoices[index];
+  const handleApproveMerged = async (indexOrId: number | string) => {
+    let invoice: MergedInvoice | undefined;
+    if (typeof indexOrId === "number") {
+      invoice = mergedInvoices[indexOrId];
+    } else {
+      invoice = mergedInvoices.find(m => m.id === indexOrId);
+    }
     if (!invoice) return;
 
     const approvedAtTime = getFullDate();
@@ -797,15 +803,19 @@ export default function App() {
     // 2. Update item statuses in database in parallel
     await Promise.all(updatedItems.map(item => saveItem(item)));
 
-    // 3. Set status approved on merged invoice with updated items
-    await saveMergedInvoice({
+    // 3. Set status approved on merged invoice with updated items in Firestore
+    const approvedInvoice: MergedInvoice = {
       ...invoice,
       items: updatedItems,
       status: "approved",
       approvedAt: approvedAtTime
-    });
+    };
+    await saveMergedInvoice(approvedInvoice);
 
-    // 4. Add archive
+    // Optimistically update local merged invoices state
+    setMergedInvoices(prev => prev.map(m => m.id === invoice!.id ? approvedInvoice : m));
+
+    // 4. Add archive in Firestore
     const archiveId = Date.now().toString();
     await saveArchive({
       id: archiveId,
@@ -861,7 +871,7 @@ export default function App() {
       approvedAt: approvedAtTime
     });
 
-    alert(`✅ تم اعتماد الفاتورة المدمجة #${invoice.invoiceNumber} بنجاح!`);
+    alert(`✅ تم اعتماد الفاتورة المدمجة #${invoice.invoiceNumber} بنجاح وانتقالها إلى قائمة الفواتير المعتمدة والأرشيف!`);
   };
 
   const handleRejectMerged = async (index: number) => {
@@ -1135,55 +1145,70 @@ export default function App() {
         }
       }
     }
-
-    if (status === "received") {
-      if (targetItem) {
-        const origQty = targetItem.originalQty || targetItem.company || "1";
-        const pastRec = targetItem.hasPartialReceipt && targetItem.receivedQty ? targetItem.receivedQty : "0";
-        const remQty = targetItem.remainingQty && targetItem.remainingQty !== "" ? targetItem.remainingQty : origQty;
-        
-        setReceiptReceivedQty(remQty);
-        setReceiptRemainingQty("0");
-        setReceiptConfirmModal({
-          invoiceId,
-          itemId,
-          itemName: targetItem.fixedName,
-          requiredQty: remQty,
-          originalQty: origQty,
-          pastReceivedQty: pastRec
-        });
-        return;
+    if (!targetItem) {
+      for (const a of archives) {
+        const found = a.items.find(i => i.id === itemId);
+        if (found) {
+          targetItem = found;
+          break;
+        }
+      }
+    }
+    if (!targetItem) {
+      for (const r of reports) {
+        const found = r.items.find(i => i.id === itemId);
+        if (found) {
+          targetItem = found;
+          break;
+        }
       }
     }
 
-    if (targetItem) {
-      const origQty = targetItem.originalQty || targetItem.company || "1";
-      const updatedItem: Item = {
-        ...targetItem,
-        deliveryStatus: status,
-        isNotArrived: status === "delayed" ? true : targetItem.isNotArrived,
-        deliveredAt: status === "received" ? getFullDate() : undefined,
-        hasPartialReceipt: false,
-        receivedQty: status === "received" ? origQty : "0",
-        remainingQty: status === "received" ? "0" : origQty
-      };
-      await saveItem(updatedItem);
+    if (status === "received") {
+      const origQty = targetItem?.originalQty || targetItem?.company || "1";
+      const pastRec = targetItem?.hasPartialReceipt && targetItem?.receivedQty ? targetItem.receivedQty : "0";
+      const remQty = targetItem?.remainingQty && targetItem?.remainingQty !== "" ? targetItem.remainingQty : origQty;
+      
+      setReceiptReceivedQty(remQty);
+      setReceiptRemainingQty("0");
+      setReceiptConfirmModal({
+        invoiceId,
+        itemId,
+        itemName: targetItem?.fixedName || "صنف مستلم",
+        requiredQty: remQty,
+        originalQty: origQty,
+        pastReceivedQty: pastRec
+      });
+      return;
     }
+
+    // When status === "delayed" (marking as not arrived)
+    const origQty = targetItem?.originalQty || targetItem?.company || "1";
+    const updatedItem: Item = {
+      ...(targetItem || {
+        id: itemId,
+        date: getToday(),
+        company: origQty,
+        fixedName: "صنف",
+        description: "-",
+        warehouse: currentUser?.warehouse || ""
+      }),
+      deliveryStatus: "delayed",
+      isNotArrived: true,
+      deliveredAt: undefined,
+      hasPartialReceipt: false,
+      receivedQty: "0",
+      remainingQty: origQty
+    };
+
+    await saveItem(updatedItem);
+    setItems(prev => prev.map(i => i.id === itemId ? updatedItem : i));
 
     const invoiceToUpdate = mergedInvoices.find(m => m.id === invoiceId || m.items.some(i => i.id === itemId));
     if (invoiceToUpdate) {
       const updatedItems = invoiceToUpdate.items.map(it => {
         if (it.id === itemId) {
-          const origQty = it.originalQty || it.company || "1";
-          return {
-            ...it,
-            deliveryStatus: status,
-            isNotArrived: status === "delayed" ? true : it.isNotArrived,
-            deliveredAt: status === "received" ? getFullDate() : undefined,
-            hasPartialReceipt: false,
-            receivedQty: status === "received" ? origQty : "0",
-            remainingQty: status === "received" ? "0" : origQty
-          };
+          return updatedItem;
         }
         return it;
       });
@@ -1202,48 +1227,38 @@ export default function App() {
     if (archToUpdate) {
       const updatedItems = archToUpdate.items.map(it => {
         if (it.id === itemId) {
-          const origQty = it.originalQty || it.company || "1";
-          return {
-            ...it,
-            deliveryStatus: status,
-            deliveredAt: status === "received" ? getFullDate() : undefined,
-            hasPartialReceipt: false,
-            receivedQty: status === "received" ? origQty : "0",
-            remainingQty: status === "received" ? "0" : origQty
-          };
+          return updatedItem;
         }
         return it;
       });
 
-      await saveArchive({
+      const updatedArch = {
         ...archToUpdate,
         items: updatedItems,
         total: updatedItems.length
-      });
+      };
+
+      await saveArchive(updatedArch);
+      setArchives(prev => prev.map(a => a.id === archToUpdate.id ? updatedArch : a));
     }
 
     const repToUpdate = reports.find(r => r.id === invoiceId || r.items.some(i => i.id === itemId));
     if (repToUpdate) {
       const updatedItems = repToUpdate.items.map(it => {
         if (it.id === itemId) {
-          const origQty = it.originalQty || it.company || "1";
-          return {
-            ...it,
-            deliveryStatus: status,
-            deliveredAt: status === "received" ? getFullDate() : undefined,
-            hasPartialReceipt: false,
-            receivedQty: status === "received" ? origQty : "0",
-            remainingQty: status === "received" ? "0" : origQty
-          };
+          return updatedItem;
         }
         return it;
       });
 
-      await saveReport({
+      const updatedRep = {
         ...repToUpdate,
         items: updatedItems,
         total: updatedItems.length
-      });
+      };
+
+      await saveReport(updatedRep);
+      setReports(prev => prev.map(r => r.id === repToUpdate.id ? updatedRep : r));
     }
   };
 
@@ -1274,6 +1289,24 @@ export default function App() {
     if (!itemToUpdate) {
       for (const m of mergedInvoices) {
         const found = m.items.find(i => i.id === itemId);
+        if (found) {
+          itemToUpdate = found;
+          break;
+        }
+      }
+    }
+    if (!itemToUpdate) {
+      for (const a of archives) {
+        const found = a.items.find(i => i.id === itemId);
+        if (found) {
+          itemToUpdate = found;
+          break;
+        }
+      }
+    }
+    if (!itemToUpdate) {
+      for (const r of reports) {
+        const found = r.items.find(i => i.id === itemId);
         if (found) {
           itemToUpdate = found;
           break;
@@ -1316,6 +1349,7 @@ export default function App() {
     };
 
     await saveItem(updatedItem);
+    setItems(prev => prev.map(i => i.id === itemId ? updatedItem : i));
 
     // Update in mergedInvoices
     const invoiceToUpdate = mergedInvoices.find(m => m.id === invoiceId || m.items.some(i => i.id === itemId));
@@ -2567,7 +2601,7 @@ export default function App() {
             {/* TAB 1: SENT INVOICES */}
             {whActiveTab === "sent" && (() => {
               const whSentInvs = mergedInvoices.filter(m => 
-                m.items.some(it => (it.warehouse || "").trim().includes(whName.trim()))
+                m.items.some(it => isWarehouseMatch(whName, it.warehouse))
               );
 
               return (
@@ -2797,7 +2831,7 @@ export default function App() {
 
                   <div className="space-y-6 max-h-[700px] overflow-y-auto pr-1">
                     {approvedInvs.map((inv, invIdx) => {
-                      const whInvoiceItems = inv.items.filter(it => (it.warehouse || "").trim().includes(whName.trim()));
+                      const whInvoiceItems = inv.items.filter(it => isWarehouseMatch(whName, it.warehouse));
                       const pendingCount = whInvoiceItems.filter(it => it.deliveryStatus !== "received" && it.deliveryStatus !== "delayed").length;
 
                       return (
@@ -2953,7 +2987,7 @@ export default function App() {
               const notArrivedGroups = approvedInvs.map(inv => {
                 const unarrived = inv.items.filter(item => {
                   if (item.resent) return false; // Hide items already resent to manager
-                  if (!(item.warehouse || "").trim().includes(whName.trim())) return false;
+                  if (!isWarehouseMatch(whName, item.warehouse)) return false;
                   const isDelayed = item.deliveryStatus === "delayed" || item.isNotArrived;
                   const isPartialWithRemaining = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
                   return isDelayed || isPartialWithRemaining;

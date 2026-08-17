@@ -763,9 +763,19 @@ export function printMatrix(
         ? ` <span class="warehouse-tag">${warehouseTag}</span>`
         : '';
 
-      const isPartial = item.hasPartialReceipt;
+      const isPartial = item.hasPartialReceipt || Boolean(item.receivedQty && item.receivedQty !== "0" && item.remainingQty && item.remainingQty !== "0");
       const isDelayedOrNotArrived = item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")));
-      const notArrivedTag = isDelayedOrNotArrived ? ` <span class="not-arrived-tag">لم يصل</span>` : '';
+      const isReceived = item.deliveryStatus === "received";
+
+      let statusCellHtml = `<span class="status-badge-pending">معلق</span>`;
+      if (isPartial) {
+        statusCellHtml = `<span class="status-badge-partial" title="مستلم: ${item.receivedQty || '0'} | متبقي: ${item.remainingQty || '0'}">جزئي (${item.remainingQty || '0'})</span>`;
+      } else if (isDelayedOrNotArrived) {
+        statusCellHtml = `<span class="status-badge-delayed">لم يصل</span>`;
+      } else if (isReceived) {
+        statusCellHtml = `<span class="status-badge-completed">مكتمل</span>`;
+      }
+
       const partialPrintHtml = isPartial ? `
         <div style="font-size: ${matrixFontSize - 2}px; font-weight: 800; color: #b00; margin-top: 1px;">
           (مطلوب: ${item.originalQty || item.company} | مستلم: ${item.receivedQty || "0"} | متبقي: ${item.remainingQty || "0"})
@@ -774,12 +784,15 @@ export function printMatrix(
 
       rowsHtml += `
         <tr>
-          <td style="width: 8%; text-align: center;">${index + 1 + col.startIndex}</td>
-          <td style="width: 14%; text-align: center; font-weight: 800; color: #8b6b4d;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
-          <td style="width: 65%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${cleanFixedName}">
-            ${cleanFixedName}${displayTag}${dupTag}${notArrivedTag}${noteTag}${partialPrintHtml}
+          <td style="width: 7%; text-align: center;">${index + 1 + col.startIndex}</td>
+          <td style="width: 12%; text-align: center; font-weight: 800; color: #8b6b4d;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
+          <td style="width: 53%; text-align: right; font-weight: 700; padding: 4px 5px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${cleanFixedName}">
+            ${cleanFixedName}${displayTag}${dupTag}${noteTag}${partialPrintHtml}
           </td>
-          <td style="width: 13%; text-align: center; padding: 1px 1px; white-space: nowrap;">
+          <td style="width: 18%; text-align: center; padding: 2px 2px; white-space: nowrap;">
+            ${statusCellHtml}
+          </td>
+          <td style="width: 10%; text-align: center; padding: 1px 1px; white-space: nowrap;">
             <span class="print-checkbox"></span>
           </td>
         </tr>
@@ -789,7 +802,7 @@ export function printMatrix(
     if (col.items.length === 0) {
       rowsHtml = `
         <tr>
-          <td colspan="4" style="text-align: center; color: #888; font-style: italic; padding: 10px 0;">لا توجد نواقص</td>
+          <td colspan="5" style="text-align: center; color: #888; font-style: italic; padding: 10px 0;">لا توجد نواقص</td>
         </tr>
       `;
     }
@@ -802,10 +815,11 @@ export function printMatrix(
           <table>
               <thead>
                   <tr>
-                      <th style="width: 8%;">#</th>
-                      <th style="width: 14%;">العدد</th>
-                      <th style="width: 66%;">اسم الصنف والبيان</th>
-                      <th style="width: 12%;">✓</th>
+                      <th style="width: 7%;">#</th>
+                      <th style="width: 12%;">العدد</th>
+                      <th style="width: 53%;">اسم الصنف والبيان</th>
+                      <th style="width: 18%;">حالة الاستلام</th>
+                      <th style="width: 10%;">✓</th>
                   </tr>
               </thead>
               <tbody>
@@ -1068,6 +1082,50 @@ export function printMatrix(
                   white-space: nowrap;
                   line-height: 1.1;
               }
+              .status-badge-completed {
+                  font-size: ${matrixFontSize - 2}px;
+                  color: #065f46;
+                  background: #d1fae5;
+                  padding: 1px 3px;
+                  border-radius: 3px;
+                  border: 1px solid #6ee7b7;
+                  font-weight: 800;
+                  display: inline-block;
+                  white-space: nowrap;
+              }
+              .status-badge-partial {
+                  font-size: ${matrixFontSize - 2}px;
+                  color: #92400e;
+                  background: #fef3c7;
+                  padding: 1px 3px;
+                  border-radius: 3px;
+                  border: 1px solid #fcd34d;
+                  font-weight: 800;
+                  display: inline-block;
+                  white-space: nowrap;
+              }
+              .status-badge-delayed {
+                  font-size: ${matrixFontSize - 2}px;
+                  color: #991b1b;
+                  background: #fee2e2;
+                  padding: 1px 3px;
+                  border-radius: 3px;
+                  border: 1px solid #fca5a5;
+                  font-weight: 900;
+                  display: inline-block;
+                  white-space: nowrap;
+              }
+              .status-badge-pending {
+                  font-size: ${matrixFontSize - 2}px;
+                  color: #475569;
+                  background: #f1f5f9;
+                  padding: 1px 3px;
+                  border-radius: 3px;
+                  border: 1px solid #cbd5e1;
+                  font-weight: 700;
+                  display: inline-block;
+                  white-space: nowrap;
+              }
               .item-note {
                   font-size: ${matrixFontSize - 1.5}px;
                   color: #000000;
@@ -1317,32 +1375,42 @@ export function printMatrix(
                   res.cols.forEach(col => {
                       let rows = '';
                       col.items.forEach((item, idx) => {
-                          const isPartial = item.hasPartialReceipt;
+                          const isPartial = item.hasPartialReceipt || Boolean(item.receivedQty && item.receivedQty !== "0" && item.remainingQty && item.remainingQty !== "0");
                           const isDelayed = item.isNotArrived || item.deliveryStatus === 'delayed' || (item.note && (item.note.includes('لم يصل') || item.note.includes('لم تصل')));
+                          const isReceived = item.deliveryStatus === 'received';
                           const cleanFixed = (item.fixedName || item.description || '').replace(/[\\(（]?\\s*إعادة إرسال لبند لم يصل[^\\)）]*[\\)）]?/g, '').trim();
                           const cleanNote = (item.note || '').replace(/[\\(（]?\\s*إعادة إرسال لبند لم يصل[^\\)）]*[\\)）]?/g, '').trim();
                           const noteTag = cleanNote && cleanNote !== '-' ? ' <span class="item-note">(' + cleanNote + ')</span>' : '';
-                          const notArrivedTag = isDelayed ? ' <span class="not-arrived-tag">لم يصل</span>' : '';
                           const dupTag = item.duplicateNote ? ' <span class="dup-badge">🔄 مكرر</span>' : '';
                           const qty = isPartial ? (item.remainingQty || '0') : (item.company || '1');
                           const partialHtml = isPartial ? '<div style="font-size:9px; font-weight:800; color:#b00; margin-top:1px;">(مطلوب: ' + (item.originalQty || item.company) + ' | مستلم: ' + (item.receivedQty || '0') + ' | متبقي: ' + (item.remainingQty || '0') + ')</div>' : '';
 
+                          let statusCell = '<span class="status-badge-pending">معلق</span>';
+                          if (isPartial) {
+                              statusCell = '<span class="status-badge-partial" title="مستلم: ' + (item.receivedQty || '0') + ' | متبقي: ' + (item.remainingQty || '0') + '">جزئي (' + (item.remainingQty || '0') + ')</span>';
+                          } else if (isDelayed) {
+                              statusCell = '<span class="status-badge-delayed">لم يصل</span>';
+                          } else if (isReceived) {
+                              statusCell = '<span class="status-badge-completed">مكتمل</span>';
+                          }
+
                           rows += '<tr>' +
-                              '<td style="width:8%; text-align:center;">' + (idx + 1 + col.startIndex) + '</td>' +
-                              '<td style="width:14%; text-align:center; font-weight:800; color:#8b6b4d;">' + qty + '</td>' +
-                              '<td style="width:65%; text-align:right; font-weight:700; padding:4px 6px; white-space:normal; word-break:break-word; line-height:1.3;">' + cleanFixed + dupTag + notArrivedTag + noteTag + partialHtml + '</td>' +
-                              '<td style="width:13%; text-align:center;"><span class="print-checkbox"></span></td>' +
+                              '<td style="width:7%; text-align:center;">' + (idx + 1 + col.startIndex) + '</td>' +
+                              '<td style="width:12%; text-align:center; font-weight:800; color:#8b6b4d;">' + qty + '</td>' +
+                              '<td style="width:53%; text-align:right; font-weight:700; padding:4px 5px; white-space:normal; word-break:break-word; line-height:1.3;">' + cleanFixed + dupTag + noteTag + partialHtml + '</td>' +
+                              '<td style="width:18%; text-align:center; padding:2px 2px; white-space:nowrap;">' + statusCell + '</td>' +
+                              '<td style="width:10%; text-align:center; padding:1px 1px;"><span class="print-checkbox"></span></td>' +
                           '</tr>';
                       });
 
                       if (col.items.length === 0) {
-                          rows = '<tr><td colspan="4" style="text-align:center; color:#888; font-style:italic; padding:10px 0;">لا توجد نواقص</td></tr>';
+                          rows = '<tr><td colspan="5" style="text-align:center; color:#888; font-style:italic; padding:10px 0;">لا توجد نواقص</td></tr>';
                       }
 
                       colsHtml += '<div class="print-column" style="min-width:' + minWidth + ';">' +
                           '<div class="column-header">' + col.title + '</div>' +
                           '<table>' +
-                              '<thead><tr><th style="width:8%;">#</th><th style="width:14%;">العدد</th><th style="width:66%;">اسم الصنف والبيان</th><th style="width:12%;">✓</th></tr></thead>' +
+                              '<thead><tr><th style="width:7%;">#</th><th style="width:12%;">العدد</th><th style="width:53%;">اسم الصنف والبيان</th><th style="width:18%;">حالة الاستلام</th><th style="width:10%;">✓</th></tr></thead>' +
                               '<tbody>' + rows + '</tbody>' +
                           '</table>' +
                       '</div>';

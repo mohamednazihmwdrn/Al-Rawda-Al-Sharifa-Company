@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { User, Item, MergedInvoice } from "../types";
 import { AYAT, isItemInTodayWindow, getToday } from "../data/constants";
 import { printInvoice } from "../utils/print";
-import { compareDatesDescending, parseArabicOrStandardDate } from "../utils/date";
+import { compareDatesDescending, parseArabicOrStandardDate, isWarehouseMatch } from "../utils/date";
 import PrintMatrixFilterModal from "./PrintMatrixFilterModal";
 
 interface DashboardProps {
@@ -55,6 +55,7 @@ export default function Dashboard({
   const [randomAyat, setRandomAyat] = useState<{ text: string; reference: string }>({ text: "", reference: "" });
   const [addItemModalInvoice, setAddItemModalInvoice] = useState<MergedInvoice | null>(null);
   const [matrixModalData, setMatrixModalData] = useState<{ items: Item[]; title: string; defaultWarehouse?: string } | null>(null);
+  const [approvedFilterMode, setApprovedFilterMode] = useState<"all" | "today">("all");
   const [modalWarehouse, setModalWarehouse] = useState("مخزن النحاس");
   const [modalCustomWarehouse, setModalCustomWarehouse] = useState("");
   const [modalQty, setModalQty] = useState("");
@@ -931,163 +932,256 @@ export default function Dashboard({
 
       {/* Approved Merged Invoices */}
       {(() => {
-        const approvedFiltered = mergedInvoices.filter(m => {
-          if (m.status !== "approved" && m.status !== "auto_approved") return false;
-          if (!isToday(m.date)) return false;
+        const allApproved = mergedInvoices.filter(m => m.status === "approved" || m.status === "auto_approved");
+        const approvedFiltered = allApproved.filter(m => {
+          if (approvedFilterMode === "today") {
+            return isToday(m.date);
+          }
           return true;
         });
-        if (approvedFiltered.length === 0) return null;
-        return (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="text-lg font-bold text-emerald-800 border-r-4 border-emerald-600 pr-3 mb-4">✅ الفواتير المدمجة المعتمدة (المنجزة)</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto">
-              {[...approvedFiltered].sort(compareDatesDescending).map((inv, invIdx) => (
-                <div key={`${inv.id}-${invIdx}`} className="bg-emerald-50/10 border border-emerald-100 p-4 rounded-2xl space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-[#1e2b3c]">📋 فاتورة مدمجة #{inv.invoiceNumber} - {inv.date}</span>
-                    <span className="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{inv.total} بند | معتمدة</span>
-                  </div>
-                  <p className="text-xs text-gray-500">🏷️ المخازن المساهمة: {inv.warehouses.join(" | ")}</p>
-                  
-                  {/* Nested item list preview */}
-                  <div className="space-y-2 max-h-[160px] overflow-y-auto bg-white p-2.5 rounded-xl border border-gray-100">
-                    {inv.items.map((item, iIndex) => {
-                      const isManager = currentUser.role === "مدير";
-                      const canUpdateDelivery = isManager || (!!currentUser.warehouse && (item.warehouse || "").trim().includes(currentUser.warehouse.trim()));
-                      const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
 
-                      return (
-                        <div key={`${inv.id}-${item.id || iIndex}-${iIndex}`} className="flex flex-col text-xs border-b border-gray-50 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
-                          <div className="flex justify-between items-center gap-2">
-                            <span className="text-gray-700 flex items-center gap-2 font-bold text-sm">
-                              <span className="text-gray-400 font-normal">{iIndex+1}.</span>
-                              {isPartial ? (
-                                <span className="bg-amber-100 text-amber-900 font-black px-2.5 py-0.5 rounded-lg text-xs border border-amber-300">
-                                  مستلم: {item.receivedQty || "0"} | متبقي: {item.remainingQty} (من أصل {item.originalQty || item.company})
-                                </span>
-                              ) : (
-                                <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">
-                                  العدد: {item.company}
-                                </span>
-                              )}
-                              <span className="text-gray-800 font-extrabold">{item.fixedName}</span>
-                            </span>
-                            <div className="flex items-center gap-2 shrink-0">
-                              {/* Delivery Status Controllers (The two requested squares) */}
-                              <div className="flex items-center gap-1 mr-1">
-                                {item.deliveryStatus === "received" ? (
-                                  <div className="flex items-center gap-1">
-                                    <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">🟢 تم الاستلام</span>
-                                    {canUpdateDelivery && (
-                                      <button
-                                        onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "delayed")}
-                                        className="text-xs text-gray-400 hover:text-red-500 cursor-pointer p-0.5"
-                                        title="تراجع / تحديد كـ لم يصل"
-                                      >
-                                        🔄
-                                      </button>
-                                    )}
-                                  </div>
-                                ) : item.deliveryStatus === "delayed" ? (
-                                  <div className="flex items-center gap-1">
-                                    <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold">🔴 لم يصل بعد</span>
-                                    {canUpdateDelivery && (
-                                      <button
-                                        onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "received")}
-                                        className="text-xs text-gray-400 hover:text-emerald-600 cursor-pointer p-0.5"
-                                        title="تغيير إلى تم الاستلام"
-                                      >
-                                        🔄
-                                      </button>
-                                    )}
-                                  </div>
+        return (
+          <div id="approved-merged-invoices-section" className="bg-white dark:bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border border-emerald-200 dark:border-emerald-900/40 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">✅</span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-emerald-800 dark:text-emerald-300">
+                      الفواتير المدمجة المعتمدة (المنجزة)
+                    </h3>
+                    <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 text-xs px-2.5 py-0.5 rounded-full font-black">
+                      {approvedFiltered.length} فاتورة
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    الفواتير التي اعتمدتها الإدارة وتخضع حالياً لتأكيد الاستلام والتوريد في المستودعات
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+                  <button
+                    onClick={() => setApprovedFilterMode("all")}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      approvedFilterMode === "all"
+                        ? "bg-emerald-600 text-white shadow-xs"
+                        : "text-gray-600 dark:text-gray-300 hover:text-gray-900"
+                    }`}
+                  >
+                    الكل ({allApproved.length})
+                  </button>
+                  <button
+                    onClick={() => setApprovedFilterMode("today")}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      approvedFilterMode === "today"
+                        ? "bg-emerald-600 text-white shadow-xs"
+                        : "text-gray-600 dark:text-gray-300 hover:text-gray-900"
+                    }`}
+                  >
+                    اليوم ({allApproved.filter(m => isToday(m.date)).length})
+                  </button>
+                </div>
+
+                {onNavigateSection && (
+                  <button
+                    onClick={() => onNavigateSection("archive")}
+                    className="bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1 border border-emerald-200 dark:border-emerald-900/40"
+                    title="فتح الأرشيف الشامل لكافة الفواتير"
+                  >
+                    <span>📦 الأرشيف الكامل</span>
+                    <span>←</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {approvedFiltered.length === 0 ? (
+              <div className="text-center py-8 bg-gray-50 dark:bg-gray-900/40 rounded-xl border border-dashed border-gray-200 dark:border-gray-800 space-y-2">
+                <span className="text-3xl block">📋</span>
+                <p className="text-sm font-bold text-gray-700 dark:text-gray-300">
+                  {approvedFilterMode === "today"
+                    ? "لا توجد فواتير مدمجة معتمدة بتاريخ اليوم حتى الآن"
+                    : "لا توجد فواتير مدمجة معتمدة مسجلة حالياً"}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  عند اعتماد أي فاتورة مدمجة من قسم "بانتظار الاعتماد" بالأعلى، ستظهر هنا فوراً لمتابعة تسليم أصنافها، كما تحفظ نسخة دائمة في قسم الأرشيف.
+                </p>
+                {allApproved.length > 0 && approvedFilterMode === "today" && (
+                  <button
+                    onClick={() => setApprovedFilterMode("all")}
+                    className="mt-2 text-xs font-bold text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    عرض كافة الفواتير المعتمدة السابقة ({allApproved.length})
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[460px] overflow-y-auto">
+                {[...approvedFiltered].sort(compareDatesDescending).map((inv, invIdx) => (
+                  <div key={`${inv.id}-${invIdx}`} className="bg-emerald-50/20 border border-emerald-100 dark:border-emerald-900/40 p-4 rounded-2xl space-y-3 shadow-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-[#1e2b3c] dark:text-gray-200">
+                        📋 فاتورة مدمجة #{inv.invoiceNumber} - {inv.date}
+                      </span>
+                      <span className="bg-emerald-600 text-white text-[10px] px-2.5 py-0.5 rounded-full font-bold">
+                        {inv.total} بند | معتمدة ✅
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">🏷️ المخازن المساهمة: {inv.warehouses.join(" | ")}</p>
+                    
+                    {/* Nested item list preview */}
+                    <div className="space-y-2 max-h-[160px] overflow-y-auto bg-white dark:bg-[#1f1f1f] p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
+                      {inv.items.map((item, iIndex) => {
+                        const isManager = currentUser.role === "مدير";
+                        const isThisWarehouse = isWarehouseMatch(currentUser.warehouse, item.warehouse);
+                        const canUpdateDelivery = isManager || isThisWarehouse || !currentUser.warehouse;
+                        const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
+
+                        return (
+                          <div key={`${inv.id}-${item.id || iIndex}-${iIndex}`} className="flex flex-col text-xs border-b border-gray-50 dark:border-gray-800 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
+                            <div className="flex justify-between items-center gap-2">
+                              <span className="text-gray-700 dark:text-gray-300 flex items-center gap-2 font-bold text-sm">
+                                <span className="text-gray-400 font-normal">{iIndex+1}.</span>
+                                {isPartial ? (
+                                  <span className="bg-amber-100 text-amber-900 font-black px-2.5 py-0.5 rounded-lg text-xs border border-amber-300">
+                                    مستلم: {item.receivedQty || "0"} | متبقي: {item.remainingQty} (من أصل {item.originalQty || item.company})
+                                  </span>
                                 ) : (
-                                  <div className="flex items-center gap-1">
-                                    <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">⏳ بانتظار التأكيد</span>
-                                    {canUpdateDelivery && (
-                                      <div className="flex gap-1">
-                                        <button
-                                          onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "received")}
-                                          className="w-5 h-5 flex items-center justify-center bg-emerald-100 hover:bg-emerald-600 hover:text-white text-emerald-800 rounded font-black cursor-pointer transition-all border border-emerald-300 text-[10px]"
-                                          title="تم الاستلام ✅"
-                                        >
-                                          ✓
-                                        </button>
+                                  <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">
+                                    العدد: {item.company}
+                                  </span>
+                                )}
+                                <span className="text-gray-800 dark:text-white font-extrabold">{item.fixedName}</span>
+                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {/* Delivery Status Controllers */}
+                                <div className="flex items-center gap-1 mr-1">
+                                  {item.deliveryStatus === "received" ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-emerald-200">
+                                        🟢 تم الاستلام
+                                      </span>
+                                      {canUpdateDelivery && (
                                         <button
                                           onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "delayed")}
-                                          className="w-5 h-5 flex items-center justify-center bg-amber-50 hover:bg-amber-600 hover:text-white text-amber-700 border border-amber-200 rounded font-black cursor-pointer transition-all text-[10px]"
-                                          title="لم يصل بعد ❌"
+                                          className="text-[10px] bg-red-50 hover:bg-red-600 hover:text-white text-red-700 font-bold px-2 py-0.5 rounded-lg border border-red-200 cursor-pointer transition-all flex items-center gap-1"
+                                          title="تراجع / تحديد كـ لم يصل"
                                         >
-                                          ✖
+                                          <span>🔄</span>
+                                          <span>لم يصل</span>
                                         </button>
-                                      </div>
-                                    )}
-                                  </div>
+                                      )}
+                                    </div>
+                                  ) : item.deliveryStatus === "delayed" || item.isNotArrived ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="bg-red-100 text-red-800 text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-red-200">
+                                        🔴 لم يصل بعد
+                                      </span>
+                                      {canUpdateDelivery && (
+                                        <button
+                                          onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "received")}
+                                          className="text-[10px] bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-800 font-bold px-2 py-0.5 rounded-lg border border-emerald-200 cursor-pointer transition-all flex items-center gap-1"
+                                          title="تأكيد الاستلام"
+                                        >
+                                          <span>✓</span>
+                                          <span>استلام</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                        ⏳ بانتظار التأكيد
+                                      </span>
+                                      {canUpdateDelivery && (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "received")}
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-2.5 py-1 rounded-lg text-[10px] cursor-pointer transition-all shadow-2xs flex items-center gap-1"
+                                            title="تأكيد استلام الصنف"
+                                          >
+                                            <span>✓</span>
+                                            <span>استلام</span>
+                                          </button>
+                                          <button
+                                            onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "delayed")}
+                                            className="bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-1 rounded-lg text-[10px] cursor-pointer transition-all shadow-2xs flex items-center gap-1"
+                                            title="تحديد الصنف كـ لم يصل"
+                                          >
+                                            <span>✖</span>
+                                            <span>لم يصل</span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <span className="bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">{item.warehouse}</span>
+                                {onDeleteMergedItem && (
+                                  <button
+                                    onClick={() => onDeleteMergedItem(mergedInvoices.indexOf(inv), iIndex)}
+                                    className="text-red-500 hover:text-red-700 font-bold p-1 hover:bg-red-50 rounded cursor-pointer"
+                                    title="حذف البند"
+                                  >
+                                    🗑
+                                  </button>
+                                )}
+                                {onEditMergedItem && (
+                                  <button
+                                    onClick={() => onEditMergedItem(mergedInvoices.indexOf(inv), iIndex, item)}
+                                    className="text-amber-600 hover:text-amber-800 font-bold p-1 hover:bg-amber-50 rounded cursor-pointer"
+                                    title="تعديل البند"
+                                  >
+                                    ✏️
+                                  </button>
                                 )}
                               </div>
-
-                              <span className="bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">{item.warehouse}</span>
-                              {onDeleteMergedItem && (
-                                <button
-                                  onClick={() => onDeleteMergedItem(mergedInvoices.indexOf(inv), iIndex)}
-                                  className="text-red-500 hover:text-red-700 font-bold p-1 hover:bg-red-50 rounded cursor-pointer"
-                                  title="حذف البند"
-                                >
-                                  🗑
-                                </button>
-                              )}
-                              {onEditMergedItem && (
-                                <button
-                                  onClick={() => onEditMergedItem(mergedInvoices.indexOf(inv), iIndex, item)}
-                                  className="text-amber-600 hover:text-amber-800 font-bold p-1 hover:bg-amber-50 rounded cursor-pointer"
-                                  title="تعديل البند"
-                                >
-                                  ✏️
-                                </button>
-                              )}
                             </div>
+                            {item.note && item.note !== "-" && item.note !== "" && (
+                              <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
+                                <span>📝 ملاحظة:</span>
+                                <span className="font-medium text-gray-700 dark:text-gray-300">{item.note}</span>
+                              </div>
+                            )}
                           </div>
-                          {item.note && item.note !== "-" && item.note !== "" && (
-                            <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
-                              <span>📝 ملاحظة:</span>
-                              <span className="font-medium text-gray-700">{item.note}</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
 
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      onClick={() => setAddItemModalInvoice(inv)}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-sm flex items-center gap-1"
-                    >
-                      ➕ إضافة صنف
-                    </button>
-                    <button
-                      onClick={() => onPrintMergedNormal(mergedInvoices.indexOf(inv))}
-                      className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
-                    >
-                      🖨️ طباعة
-                    </button>
-                    <button
-                      onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة معتمدة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-xs"
-                      title="طباعة مصفوفة النواقص مع خيارات الفلترة"
-                    >
-                      ⊞ طباعة مصفوفة
-                    </button>
-                    <button
-                      onClick={() => onDeleteMerged(mergedInvoices.indexOf(inv))}
-                      className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold p-2 px-2.5 rounded-xl transition-all cursor-pointer"
-                    >
-                      🗑️ حذف الفاتورة المعتمدة
-                    </button>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        onClick={() => setAddItemModalInvoice(inv)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-sm flex items-center gap-1"
+                      >
+                        ➕ إضافة صنف
+                      </button>
+                      <button
+                        onClick={() => onPrintMergedNormal(mergedInvoices.indexOf(inv))}
+                        className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
+                      >
+                        🖨️ طباعة
+                      </button>
+                      <button
+                        onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة معتمدة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
+                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-xs"
+                        title="طباعة مصفوفة النواقص مع خيارات الفلترة"
+                      >
+                        ⊞ طباعة مصفوفة
+                      </button>
+                      <button
+                        onClick={() => onDeleteMerged(mergedInvoices.indexOf(inv))}
+                        className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold p-2 px-2.5 rounded-xl transition-all cursor-pointer"
+                      >
+                        🗑️ حذف الفاتورة المعتمدة
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })()}

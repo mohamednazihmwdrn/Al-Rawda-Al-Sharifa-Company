@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { User, Item, MergedInvoice } from "../types";
 import { printInvoice } from "../utils/print";
-import { compareDatesDescending, parseArabicOrStandardDate } from "../utils/date";
+import { compareDatesDescending, parseArabicOrStandardDate, isWarehouseMatch } from "../utils/date";
 
 interface UnreceivedItemsProps {
   currentUser: User;
@@ -135,7 +135,7 @@ export default function UnreceivedItems({
         if (item.resent) return false;
 
         // Warehouse filter
-        if (effectiveWh && (item.warehouse || "").trim() !== effectiveWh.trim()) {
+        if (effectiveWh && !isWarehouseMatch(effectiveWh, item.warehouse)) {
           return false;
         }
 

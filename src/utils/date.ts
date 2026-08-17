@@ -131,3 +131,15 @@ export function formatDateArabic(val: number | string | Date): string {
     day: "numeric"
   });
 }
+
+/**
+ * Flexible warehouse comparison helper to prevent mismatches
+ * between "مخزن النحاس" and "النحاس" or different whitespace variations.
+ */
+export function isWarehouseMatch(userWh?: string, itemWh?: string): boolean {
+  if (!userWh || !itemWh) return true;
+  const clean1 = userWh.replace(/مخزن\s*/g, "").trim().toLowerCase();
+  const clean2 = itemWh.replace(/مخزن\s*/g, "").trim().toLowerCase();
+  if (!clean1 || !clean2) return true;
+  return clean1 === clean2 || clean1.includes(clean2) || clean2.includes(clean1);
+}
