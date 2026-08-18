@@ -56,6 +56,7 @@ export default function Dashboard({
   const [addItemModalInvoice, setAddItemModalInvoice] = useState<MergedInvoice | null>(null);
   const [matrixModalData, setMatrixModalData] = useState<{ items: Item[]; title: string; defaultWarehouse?: string } | null>(null);
   const [approvedFilterMode, setApprovedFilterMode] = useState<"all" | "today">("all");
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [modalWarehouse, setModalWarehouse] = useState("مخزن النحاس");
   const [modalCustomWarehouse, setModalCustomWarehouse] = useState("");
   const [modalQty, setModalQty] = useState("");
@@ -512,40 +513,64 @@ export default function Dashboard({
 
                       <div className="flex flex-wrap gap-2 pt-1">
                         <button
-                          onClick={() => onApproveMerged(inv.id)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black p-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                          disabled={actionLoadingId === `approve_${inv.id}`}
+                          onClick={async () => {
+                            setActionLoadingId(`approve_${inv.id}`);
+                            try {
+                              await onApproveMerged(inv.id);
+                            } finally {
+                              setActionLoadingId(null);
+                            }
+                          }}
+                          className={`bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black p-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 ${actionLoadingId === `approve_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
                         >
-                          <span>✓</span>
-                          <span>اعتماد الكل</span>
+                          <span>{actionLoadingId === `approve_${inv.id}` ? "⏳" : "✓"}</span>
+                          <span>{actionLoadingId === `approve_${inv.id}` ? "جاري الاعتماد..." : "اعتماد الكل"}</span>
                         </button>
                         <button
                           onClick={() => onPrintMergedNormal(inv.id)}
-                          className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                          className="bg-[#8b6b4d] hover:bg-[#6d4f34] active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
                         >
                           <span>🖨️</span>
                           <span>طباعة</span>
                         </button>
                         <button
                           onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
-                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                          className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
                           title="طباعة مصفوفة النواقص مع خيارات الفلترة"
                         >
                           <span>⊞</span>
                           <span>طباعة مصفوفة</span>
                         </button>
                         <button
-                          onClick={() => onRejectMerged(inv.id)}
-                          className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                          disabled={actionLoadingId === `reject_${inv.id}`}
+                          onClick={async () => {
+                            setActionLoadingId(`reject_${inv.id}`);
+                            try {
+                              await onRejectMerged(inv.id);
+                            } finally {
+                              setActionLoadingId(null);
+                            }
+                          }}
+                          className={`bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${actionLoadingId === `reject_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
                         >
-                          <span>✕</span>
-                          <span>رفض الكل</span>
+                          <span>{actionLoadingId === `reject_${inv.id}` ? "⏳" : "✕"}</span>
+                          <span>{actionLoadingId === `reject_${inv.id}` ? "جاري الرفض..." : "رفض الكل"}</span>
                         </button>
                         <button
-                          onClick={() => onDeleteMerged(inv.id)}
-                          className="bg-gray-500 hover:bg-gray-600 text-white text-xs font-bold p-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                          disabled={actionLoadingId === `delete_${inv.id}`}
+                          onClick={async () => {
+                            setActionLoadingId(`delete_${inv.id}`);
+                            try {
+                              await onDeleteMerged(inv.id);
+                            } finally {
+                              setActionLoadingId(null);
+                            }
+                          }}
+                          className={`bg-gray-500 hover:bg-gray-600 active:scale-95 text-white text-xs font-bold p-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${actionLoadingId === `delete_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
                         >
-                          <span>🗑️</span>
-                          <span>حذف الفاتورة</span>
+                          <span>{actionLoadingId === `delete_${inv.id}` ? "⏳" : "🗑️"}</span>
+                          <span>{actionLoadingId === `delete_${inv.id}` ? "جاري الحذف..." : "حذف الفاتورة"}</span>
                         </button>
                       </div>
                     </div>

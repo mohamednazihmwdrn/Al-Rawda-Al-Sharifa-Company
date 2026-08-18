@@ -396,48 +396,77 @@ export function listenItems(callback: (items: Item[]) => void) {
 }
 
 export async function saveItem(item: Item) {
+  const itemId = item.id || `item_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const safeItem: Item = { ...item, id: itemId };
   const current = getLocal<Item[]>("items", []);
-  const index = current.findIndex(i => i.id === item.id);
+  const index = current.findIndex(i => i.id === itemId);
   const updated = index >= 0 
-    ? current.map(i => i.id === item.id ? item : i)
-    : [item, ...current];
+    ? current.map(i => i.id === itemId ? safeItem : i)
+    : [safeItem, ...current];
   
   notifyLocalListeners("items", updated);
-  await safeSetDoc(doc(db, "items", item.id), item);
+  try {
+    await safeSetDoc(doc(db, "items", itemId), safeItem);
+  } catch (err) {
+    console.warn("saveItem error handled:", err);
+  }
 }
 
 export async function saveItems(items: Item[]) {
   const current = getLocal<Item[]>("items", []);
   const updatedMap = new Map(current.map(i => [i.id, i]));
-  items.forEach(it => updatedMap.set(it.id, it));
+  const safeItems = items.map((it, idx) => {
+    const id = it.id || `item_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`;
+    return { ...it, id };
+  });
+  safeItems.forEach(it => updatedMap.set(it.id, it));
   const updatedList = Array.from(updatedMap.values());
   
   notifyLocalListeners("items", updatedList);
 
-  for (const item of items) {
-    await safeSetDoc(doc(db, "items", item.id), item);
+  for (const item of safeItems) {
+    try {
+      await safeSetDoc(doc(db, "items", item.id), item);
+    } catch (err) {
+      console.warn("saveItems batch error handled:", err);
+    }
   }
 }
 
 export async function deleteItem(id: string) {
+  if (!id) return;
   const current = getLocal<Item[]>("items", []);
   const updated = current.filter(i => i.id !== id);
   notifyLocalListeners("items", updated);
-  await safeDeleteDoc(doc(db, "items", id));
+  try {
+    await safeDeleteDoc(doc(db, "items", id));
+  } catch (err) {
+    console.warn("deleteItem error handled:", err);
+  }
 }
 
 export async function updateItemStatus(id: string, status: Item["status"], extraFields: Partial<Item> = {}) {
+  if (!id) return;
   const current = getLocal<Item[]>("items", []);
   const updated = current.map(i => i.id === id ? { ...i, status, ...extraFields } : i);
   notifyLocalListeners("items", updated);
-  await safeUpdateDoc(doc(db, "items", id), { status, ...extraFields });
+  try {
+    await safeUpdateDoc(doc(db, "items", id), { status, ...extraFields });
+  } catch (err) {
+    console.warn("updateItemStatus error handled:", err);
+  }
 }
 
 export async function updateItemFields(id: string, fields: Partial<Item>) {
+  if (!id) return;
   const current = getLocal<Item[]>("items", []);
   const updated = current.map(i => i.id === id ? { ...i, ...fields } : i);
   notifyLocalListeners("items", updated);
-  await safeUpdateDoc(doc(db, "items", id), fields);
+  try {
+    await safeUpdateDoc(doc(db, "items", id), fields);
+  } catch (err) {
+    console.warn("updateItemFields error handled:", err);
+  }
 }
 
 // === Merged Invoices ===
@@ -468,14 +497,20 @@ export function listenMergedInvoices(callback: (invoices: MergedInvoice[]) => vo
 }
 
 export async function saveMergedInvoice(invoice: MergedInvoice) {
+  const invoiceId = invoice.id || `merged_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const safeInvoice: MergedInvoice = { ...invoice, id: invoiceId };
   const current = getLocal<MergedInvoice[]>("mergedInvoices", []);
-  const index = current.findIndex(m => m.id === invoice.id);
+  const index = current.findIndex(m => m.id === invoiceId);
   const updated = index >= 0 
-    ? current.map(m => m.id === invoice.id ? invoice : m)
-    : [invoice, ...current];
+    ? current.map(m => m.id === invoiceId ? safeInvoice : m)
+    : [safeInvoice, ...current];
   
   notifyLocalListeners("mergedInvoices", updated);
-  await safeSetDoc(doc(db, "mergedInvoices", invoice.id), invoice);
+  try {
+    await safeSetDoc(doc(db, "mergedInvoices", invoiceId), safeInvoice);
+  } catch (err) {
+    console.warn("saveMergedInvoice error handled:", err);
+  }
 }
 
 export async function getPendingItemsFromDb(): Promise<Item[]> {
@@ -550,10 +585,15 @@ export async function getMergedInvoicesCountFromDb(): Promise<number> {
 }
 
 export async function deleteMergedInvoice(id: string) {
+  if (!id) return;
   const current = getLocal<MergedInvoice[]>("mergedInvoices", []);
   const updated = current.filter(m => m.id !== id);
   notifyLocalListeners("mergedInvoices", updated);
-  await safeDeleteDoc(doc(db, "mergedInvoices", id));
+  try {
+    await safeDeleteDoc(doc(db, "mergedInvoices", id));
+  } catch (err) {
+    console.warn("deleteMergedInvoice error handled:", err);
+  }
 }
 
 // === Archives ===
@@ -584,21 +624,32 @@ export function listenArchives(callback: (archives: Archive[]) => void) {
 }
 
 export async function saveArchive(archive: Archive) {
+  const archId = archive.id || `arch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const safeArchive: Archive = { ...archive, id: archId };
   const current = getLocal<Archive[]>("archives", []);
-  const index = current.findIndex(a => a.id === archive.id);
+  const index = current.findIndex(a => a.id === archId);
   const updated = index >= 0 
-    ? current.map(a => a.id === archive.id ? archive : a)
-    : [archive, ...current];
+    ? current.map(a => a.id === archId ? safeArchive : a)
+    : [safeArchive, ...current];
   
   notifyLocalListeners("archives", updated);
-  await safeSetDoc(doc(db, "archives", archive.id), archive);
+  try {
+    await safeSetDoc(doc(db, "archives", archId), safeArchive);
+  } catch (err) {
+    console.warn("saveArchive error handled:", err);
+  }
 }
 
 export async function deleteArchive(id: string) {
+  if (!id) return;
   const current = getLocal<Archive[]>("archives", []);
   const updated = current.filter(a => a.id !== id);
   notifyLocalListeners("archives", updated);
-  await safeDeleteDoc(doc(db, "archives", id));
+  try {
+    await safeDeleteDoc(doc(db, "archives", id));
+  } catch (err) {
+    console.warn("deleteArchive error handled:", err);
+  }
 }
 
 // === Warehouse Archives ===
@@ -629,21 +680,32 @@ export function listenWarehouseArchives(callback: (archives: WarehouseArchive[])
 }
 
 export async function saveWarehouseArchive(archive: WarehouseArchive) {
+  const whId = archive.id || `wh_arch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const safeArchive: WarehouseArchive = { ...archive, id: whId };
   const current = getLocal<WarehouseArchive[]>("warehouseArchives", []);
-  const index = current.findIndex(a => a.id === archive.id);
+  const index = current.findIndex(a => a.id === whId);
   const updated = index >= 0 
-    ? current.map(a => a.id === archive.id ? archive : a)
-    : [archive, ...current];
+    ? current.map(a => a.id === whId ? safeArchive : a)
+    : [safeArchive, ...current];
   
   notifyLocalListeners("warehouseArchives", updated);
-  await safeSetDoc(doc(db, "warehouseArchives", archive.id), archive);
+  try {
+    await safeSetDoc(doc(db, "warehouseArchives", whId), safeArchive);
+  } catch (err) {
+    console.warn("saveWarehouseArchive error handled:", err);
+  }
 }
 
 export async function deleteWarehouseArchive(id: string) {
+  if (!id) return;
   const current = getLocal<WarehouseArchive[]>("warehouseArchives", []);
   const updated = current.filter(a => a.id !== id);
   notifyLocalListeners("warehouseArchives", updated);
-  await safeDeleteDoc(doc(db, "warehouseArchives", id));
+  try {
+    await safeDeleteDoc(doc(db, "warehouseArchives", id));
+  } catch (err) {
+    console.warn("deleteWarehouseArchive error handled:", err);
+  }
 }
 
 // === Reports ===
@@ -674,21 +736,32 @@ export function listenReports(callback: (reports: Report[]) => void) {
 }
 
 export async function saveReport(report: Report) {
+  const reportId = report.id || `rep_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const safeReport: Report = { ...report, id: reportId };
   const current = getLocal<Report[]>("reports", []);
-  const index = current.findIndex(r => r.id === report.id);
+  const index = current.findIndex(r => r.id === reportId);
   const updated = index >= 0 
-    ? current.map(r => r.id === report.id ? report : r)
-    : [report, ...current];
+    ? current.map(r => r.id === reportId ? safeReport : r)
+    : [safeReport, ...current];
   
   notifyLocalListeners("reports", updated);
-  await safeSetDoc(doc(db, "reports", report.id), report);
+  try {
+    await safeSetDoc(doc(db, "reports", reportId), safeReport);
+  } catch (err) {
+    console.warn("saveReport error handled:", err);
+  }
 }
 
 export async function deleteReport(id: string) {
+  if (!id) return;
   const current = getLocal<Report[]>("reports", []);
   const updated = current.filter(r => r.id !== id);
   notifyLocalListeners("reports", updated);
-  await safeDeleteDoc(doc(db, "reports", id));
+  try {
+    await safeDeleteDoc(doc(db, "reports", id));
+  } catch (err) {
+    console.warn("deleteReport error handled:", err);
+  }
 }
 
 // === Saved Items ===
@@ -903,17 +976,28 @@ export function listenTrash(callback: (trashItems: TrashItem[]) => void) {
 }
 
 export async function moveToTrash(trashRecord: TrashItem) {
+  const id = trashRecord.id || `trash_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const safeRecord: TrashItem = { ...trashRecord, id };
   const current = getLocal<TrashItem[]>("trash", []);
-  const updated = [trashRecord, ...current.filter(t => t.id !== trashRecord.id)];
+  const updated = [safeRecord, ...current.filter(t => t.id !== id)];
   notifyLocalListeners("trash", updated);
-  await safeSetDoc(doc(db, "trash", trashRecord.id), trashRecord);
+  try {
+    await safeSetDoc(doc(db, "trash", id), safeRecord);
+  } catch (err) {
+    console.warn("moveToTrash error handled:", err);
+  }
 }
 
 export async function permanentlyDeleteFromTrash(id: string) {
+  if (!id) return;
   const current = getLocal<TrashItem[]>("trash", []);
   const updated = current.filter(t => t.id !== id);
   notifyLocalListeners("trash", updated);
-  await safeDeleteDoc(doc(db, "trash", id));
+  try {
+    await safeDeleteDoc(doc(db, "trash", id));
+  } catch (err) {
+    console.warn("permanentlyDeleteFromTrash error handled:", err);
+  }
 }
 
 export async function clearAllTrash() {
