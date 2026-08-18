@@ -453,43 +453,30 @@ export default function App() {
   useEffect(() => {
     if (currentUser && users[currentUser.username]) {
       const updatedUser = users[currentUser.username];
-      const curStr = JSON.stringify({
-        role: currentUser.role,
-        displayName: currentUser.displayName,
-        permissions: currentUser.permissions || [],
-        warehouse: currentUser.warehouse,
-        password: currentUser.password
-      });
-      const updStr = JSON.stringify({
-        role: updatedUser.role,
-        displayName: updatedUser.displayName,
-        permissions: updatedUser.permissions || [],
-        warehouse: updatedUser.warehouse,
-        password: updatedUser.password
-      });
-      if (curStr !== updStr) {
+      if (
+        currentUser.role !== updatedUser.role ||
+        currentUser.displayName !== updatedUser.displayName ||
+        currentUser.warehouse !== updatedUser.warehouse ||
+        currentUser.password !== updatedUser.password ||
+        JSON.stringify(currentUser.permissions || []) !== JSON.stringify(updatedUser.permissions || [])
+      ) {
         setCurrentUser(updatedUser);
         localStorage.setItem("current_user_session", JSON.stringify(updatedUser));
       }
     }
-  }, [users, currentUser]);
+  }, [users]);
 
-  // 10 PM automatic archiving check & pending invoice auto-consolidation
+  // 10 PM automatic archiving check & single mount check (non-cyclical)
   useEffect(() => {
-    // Run the automatic check once on mount / update
     handleAutoArchiveDeficits();
 
-    // Automatically consolidate pending invoices and items for today
-    autoMergePendingInvoices();
-
-    // Check periodically (every 30 seconds)
+    // Check periodically (every 5 minutes, lightweight)
     const checkInterval = setInterval(() => {
       handleAutoArchiveDeficits();
-      autoMergePendingInvoices();
-    }, 30000);
+    }, 5 * 60 * 1000);
 
     return () => clearInterval(checkInterval);
-  }, [mergedInvoices, items]);
+  }, []);
 
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
@@ -543,37 +530,38 @@ export default function App() {
   }, []);
 
   // === Deficits and Cart saving logic ===
+  // OPTIMIZED: Single-write batch operation to prevent Firestore quota exhaustion and eliminate loops
   const handleSaveCart = async (cartItems: LocalCartItem[]) => {
-    if (!currentUser) return;
+    if (!currentUser || cartItems.length === 0) return;
     const warehouse = currentUser.role === "مدير" ? "مخزن المدير" : (currentUser.warehouse || "المدير");
     const today = getToday();
+    const nowTime = getNow();
+    const timestamp = Date.now();
 
-    const savedItemsList: Item[] = [];
+    // 1. Convert cart items dynamically into standardized items array
+    const newItems: Item[] = cartItems.map((cartItem, idx) => ({
+      id: cartItem.id || `item_${timestamp}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+      company: cartItem.company?.trim() || "1", // Quantity
+      fixedName: cartItem.fixedName?.trim() || "صنف", // Name
+      description: cartItem.description || "-",
+      note: cartItem.note || "-",
+      date: today,
+      time: cartItem.time || nowTime,
+      warehouse,
+      user: currentUser.displayName || currentUser.username,
+      savedAt: getFullDate(),
+      status: "waiting",
+      duplicateFrom: cartItem.duplicateFrom,
+      duplicateNote: cartItem.duplicateNote,
+      createdAt: timestamp
+    }));
 
-    for (const cartItem of cartItems) {
-      const newItem: Item = {
-        id: cartItem.id,
-        company: cartItem.company,
-        fixedName: cartItem.fixedName,
-        description: cartItem.description,
-        note: cartItem.note,
-        date: today,
-        time: cartItem.time,
-        warehouse,
-        user: currentUser.displayName || currentUser.username,
-        savedAt: getFullDate(),
-        status: "waiting", // All warehouse deficits (including general merchandise & copper) go to waiting
-        duplicateFrom: cartItem.duplicateFrom,
-        duplicateNote: cartItem.duplicateNote,
-        createdAt: Date.now()
-      };
+    // 2. Update local state immediately for zero-delay UI response
+    setItems(prev => [...newItems, ...prev]);
 
-      await saveItem(newItem);
-      savedItemsList.push(newItem);
-    }
-
-    // Always trigger auto-merge so items from all warehouses (general merchandise, copper, etc.) are combined into a single invoice
-    await autoMergePendingInvoices();
+    // 3. Save into single consolidated pending MergedInvoice directly in ONE Firestore write
+    // This avoids per-item individual writes (N writes -> 1 write)
+    await autoMergePendingInvoices(newItems);
   };
 
   // Automatic deficit merging for manager (real-time from Firestore)
@@ -592,12 +580,12 @@ export default function App() {
     // Check existing pending merged invoices for today
     const existingInvoices = (await getPendingMergedInvoicesFromDb(today)) || [];
 
-    // Collect all item IDs that belong to approved / auto_approved invoices for today
-    const approvedTodayInvoices = mergedInvoices.filter(
-      m => m.date === today && (m.status === "approved" || m.status === "auto_approved")
+    // Collect all item IDs that belong to approved / auto_approved invoices across the system
+    const allApprovedInvoices = mergedInvoices.filter(
+      m => m.status === "approved" || m.status === "auto_approved"
     );
     const approvedItemIds = new Set<string>();
-    approvedTodayInvoices.forEach(inv => {
+    allApprovedInvoices.forEach(inv => {
       inv.items?.forEach(it => {
         if (it.id) approvedItemIds.add(it.id);
       });
@@ -638,18 +626,24 @@ export default function App() {
         return;
       }
 
-      await saveMergedInvoice({
-        ...primary,
-        items: combinedItems,
-        total: combinedItems.length,
-        warehouses: combinedWarehouses,
-        time: primary.time || getNow(),
-        unread: true
-      });
+      // Only update if items count or IDs actually changed
+      const primaryItemIds = (primary.items || []).map(i => i.id).join(",");
+      const combinedItemIds = combinedItems.map(i => i.id).join(",");
 
-      // If multiple pending invoices existed for today, delete the extra ones to keep everything in ONE invoice
-      for (let i = 1; i < existingInvoices.length; i++) {
-        await deleteMergedInvoice(existingInvoices[i].id);
+      if (primaryItemIds !== combinedItemIds || existingInvoices.length > 1) {
+        await saveMergedInvoice({
+          ...primary,
+          items: combinedItems,
+          total: combinedItems.length,
+          warehouses: combinedWarehouses,
+          time: primary.time || getNow(),
+          unread: true
+        });
+
+        // If multiple pending invoices existed for today, delete the extra ones to keep everything in ONE invoice
+        for (let i = 1; i < existingInvoices.length; i++) {
+          await deleteMergedInvoice(existingInvoices[i].id);
+        }
       }
     } else if (trulyPendingItems.length > 0) {
       const invoicesCount = await getMergedInvoicesCountFromDb();
@@ -940,14 +934,76 @@ export default function App() {
 
     if (updatedItems.length === 0) {
       await deleteMergedInvoice(inv.id);
+      setMergedInvoices(prev => prev.filter(m => m.id !== inv!.id));
       alert("🗑️ تم نقل البند إلى سلة المحذوفات وحذف الفاتورة المدمجة لعدم احتوائها على بنود أخرى!");
     } else {
-      await saveMergedInvoice({
+      const updatedInv = {
         ...inv,
         items: updatedItems,
         total: updatedItems.length
-      });
+      };
+      await saveMergedInvoice(updatedInv);
+      setMergedInvoices(prev => prev.map(m => m.id === inv!.id ? updatedInv : m));
       alert("🗑️ تم حذف البند ونقله إلى سلة المحذوفات بنجاح!");
+    }
+
+    if (item.id) {
+      const itInDb = items.find(i => i.id === item.id);
+      if (itInDb) {
+        const deletedIt: Item = {
+          ...itInDb,
+          status: "deleted",
+          deletedAt: getFullDate(),
+          deletedFrom: inv.warehouses?.join(" - ") || "فاتورة مدمجة"
+        };
+        await saveItem(deletedIt);
+        setItems(prev => prev.map(i => i.id === item.id ? deletedIt : i));
+      }
+
+      // Synchronize deletion with archives if present
+      archives.forEach(async (arch) => {
+        if (arch.items?.some(it => it.id === item.id)) {
+          const rem = arch.items.filter(it => it.id !== item.id);
+          if (rem.length === 0) {
+            await deleteArchive(arch.id);
+            setArchives(prev => prev.filter(a => a.id !== arch.id));
+          } else {
+            const upArch = { ...arch, items: rem, total: rem.length };
+            await saveArchive(upArch);
+            setArchives(prev => prev.map(a => a.id === arch.id ? upArch : a));
+          }
+        }
+      });
+
+      // Synchronize with warehouse archives
+      warehouseArchives.forEach(async (wa) => {
+        if (wa.items?.some(it => it.id === item.id)) {
+          const rem = wa.items.filter(it => it.id !== item.id);
+          if (rem.length === 0) {
+            await deleteWarehouseArchive(wa.id);
+            setWarehouseArchives(prev => prev.filter(w => w.id !== wa.id));
+          } else {
+            const upWa = { ...wa, items: rem, total: rem.length };
+            await saveWarehouseArchive(upWa);
+            setWarehouseArchives(prev => prev.map(w => w.id === wa.id ? upWa : w));
+          }
+        }
+      });
+
+      // Synchronize with reports
+      reports.forEach(async (rep) => {
+        if (rep.items?.some(it => it.id === item.id)) {
+          const rem = rep.items.filter(it => it.id !== item.id);
+          if (rem.length === 0) {
+            await deleteReport(rep.id);
+            setReports(prev => prev.filter(r => r.id !== rep.id));
+          } else {
+            const upRep = { ...rep, items: rem, total: rem.length };
+            await saveReport(upRep);
+            setReports(prev => prev.map(r => r.id === rep.id ? upRep : r));
+          }
+        }
+      });
     }
   };
 
@@ -971,6 +1027,7 @@ export default function App() {
 
       await moveToTrash(trashRecord);
       await deleteMergedInvoice(invoice.id);
+      setMergedInvoices(prev => prev.filter(m => m.id !== invoice.id));
       alert("🗑️ تم حذف الفاتورة المدمجة ونقلها إلى سلة المحذوفات بنجاح!");
     }
   };
@@ -1003,25 +1060,75 @@ export default function App() {
 
     if (updatedItems.length === 0) {
       await deleteMergedInvoice(inv.id);
+      setMergedInvoices(prev => prev.filter(m => m.id !== inv.id));
       alert("🗑️ تم نقل البند إلى سلة المحذوفات وحذف الفاتورة المدمجة لعدم احتوائها على بنود أخرى!");
     } else {
-      await saveMergedInvoice({
+      const updatedInv = {
         ...inv,
         items: updatedItems,
         total: updatedItems.length
-      });
+      };
+      await saveMergedInvoice(updatedInv);
+      setMergedInvoices(prev => prev.map(m => m.id === inv.id ? updatedInv : m));
       alert("🗑️ تم حذف البند ونقله إلى سلة المحذوفات بنجاح!");
     }
 
     const itInDb = items.find(i => i.id === itemId);
     if (itInDb) {
-      await saveItem({
+      const deletedIt: Item = {
         ...itInDb,
         status: "deleted",
         deletedAt: getFullDate(),
         deletedFrom: inv.warehouses?.join(" - ") || "فاتورة مدمجة"
-      });
+      };
+      await saveItem(deletedIt);
+      setItems(prev => prev.map(i => i.id === itemId ? deletedIt : i));
     }
+
+    // Synchronize deletion with archives if present
+    archives.forEach(async (arch) => {
+      if (arch.items?.some(it => it.id === itemId)) {
+        const rem = arch.items.filter(it => it.id !== itemId);
+        if (rem.length === 0) {
+          await deleteArchive(arch.id);
+          setArchives(prev => prev.filter(a => a.id !== arch.id));
+        } else {
+          const upArch = { ...arch, items: rem, total: rem.length };
+          await saveArchive(upArch);
+          setArchives(prev => prev.map(a => a.id === arch.id ? upArch : a));
+        }
+      }
+    });
+
+    // Synchronize with warehouse archives
+    warehouseArchives.forEach(async (wa) => {
+      if (wa.items?.some(it => it.id === itemId)) {
+        const rem = wa.items.filter(it => it.id !== itemId);
+        if (rem.length === 0) {
+          await deleteWarehouseArchive(wa.id);
+          setWarehouseArchives(prev => prev.filter(w => w.id !== wa.id));
+        } else {
+          const upWa = { ...wa, items: rem, total: rem.length };
+          await saveWarehouseArchive(upWa);
+          setWarehouseArchives(prev => prev.map(w => w.id === wa.id ? upWa : w));
+        }
+      }
+    });
+
+    // Synchronize with reports
+    reports.forEach(async (rep) => {
+      if (rep.items?.some(it => it.id === itemId)) {
+        const rem = rep.items.filter(it => it.id !== itemId);
+        if (rem.length === 0) {
+          await deleteReport(rep.id);
+          setReports(prev => prev.filter(r => r.id !== rep.id));
+        } else {
+          const upRep = { ...rep, items: rem, total: rem.length };
+          await saveReport(upRep);
+          setReports(prev => prev.map(r => r.id === rep.id ? upRep : r));
+        }
+      }
+    });
   };
 
   const handleEditMergedItemById = (invoiceId: string, item: Item) => {

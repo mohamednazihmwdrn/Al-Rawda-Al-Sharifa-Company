@@ -18,7 +18,9 @@ import {
   getMergedCompanyMap,
   syncAllLocalDataToFirestore,
   recoverPreviousWork,
-  resetQuotaCircuitBreaker
+  resetQuotaCircuitBreaker,
+  getDatabaseStorageStats,
+  DatabaseStorageStats
 } from "../services/dbService";
 import { companyItemsMap } from "../data/constants";
 
@@ -159,6 +161,15 @@ export default function Settings({
   const [generatedBackupCode, setGeneratedBackupCode] = useState("");
   const [pasteBackupCode, setPasteBackupCode] = useState("");
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [storageStats, setStorageStats] = useState<DatabaseStorageStats>(() => getDatabaseStorageStats());
+
+  const handleRefreshStorageStats = () => {
+    setStorageStats(getDatabaseStorageStats());
+  };
+
+  useEffect(() => {
+    setStorageStats(getDatabaseStorageStats());
+  }, [items, mergedInvoices, archives, warehouseArchives, reports, savedItems, users]);
 
   const handleSyncToNewCloud = async () => {
     setIsSyncingCloud(true);
@@ -512,8 +523,84 @@ export default function Settings({
 
         {/* Database & Backup Actions */}
         <div className="space-y-4">
-          <h4 className="font-bold text-[#8b6b4d] text-base border-r-2 border-[#8b6b4d] pr-2">💾 المزامنة السحابية وقاعدة البيانات والنسخ الاحتياطي</h4>
-          <p className="text-xs text-gray-400 font-semibold">مزامنة البيانات وشغل اليوم إلى قاعدة البيانات السحابية واستعادة كافة السجلات القديمة وحفظ النسخ الاحتياطية بأمان تام.</p>
+          <h4 className="font-bold text-[#8b6b4d] text-base border-r-2 border-[#8b6b4d] pr-2">💾 المزامنة السحابية واستهلاك قاعدة البيانات والنسخ الاحتياطي</h4>
+          <p className="text-xs text-gray-400 font-semibold">مزامنة البيانات وشغل اليوم إلى قاعدة البيانات السحابية ومراقبة حجم البيانات المستهلكة وباقي كم ميجابايت من الباقة المجانية.</p>
+          
+          {/* Real-time Storage & MB Consumption Card */}
+          <div className="p-4 bg-gradient-to-br from-blue-50/60 via-white to-amber-50/40 border-2 border-blue-200/80 rounded-2xl space-y-3 shadow-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📊</span>
+                <div>
+                  <h5 className="text-xs font-black text-blue-950">مراقبة سعة واستهلاك قاعدة البيانات</h5>
+                  <p className="text-[10px] text-gray-500">حساب فوري لحجم البيانات والميجابايت المستهلكة والمتبقية</p>
+                </div>
+              </div>
+              <button
+                onClick={handleRefreshStorageStats}
+                className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-900 px-2 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1"
+                title="إعادة حساب الحجم الدقيق للبيانات"
+              >
+                <span>🔄</span>
+                <span>تحديث العداد</span>
+              </button>
+            </div>
+
+            {/* Quick Metrics Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              <div className="p-2.5 bg-white border border-blue-100 rounded-xl flex flex-col text-center">
+                <span className="text-[10px] font-bold text-gray-400">الميجابايت المستهلك</span>
+                <span className="text-sm font-black text-blue-900 mt-0.5">{storageStats.usedMB} MB</span>
+                <span className="text-[9px] text-gray-400">({storageStats.usedKB} KB)</span>
+              </div>
+              <div className="p-2.5 bg-white border border-emerald-100 rounded-xl flex flex-col text-center">
+                <span className="text-[10px] font-bold text-gray-400">المتبقي من الباقة</span>
+                <span className="text-sm font-black text-emerald-800 mt-0.5">{storageStats.remainingMB} MB</span>
+                <span className="text-[9px] text-emerald-600 font-bold">باقة 1024 MB (1GB)</span>
+              </div>
+              <div className="p-2.5 bg-white border border-amber-100 rounded-xl flex flex-col text-center">
+                <span className="text-[10px] font-bold text-gray-400">نسبة الاستهلاك</span>
+                <span className="text-sm font-black text-amber-900 mt-0.5">{storageStats.percentUsed}</span>
+                <span className="text-[9px] text-emerald-700 font-semibold">استهلاك خفيف جداً</span>
+              </div>
+              <div className="p-2.5 bg-white border border-purple-100 rounded-xl flex flex-col text-center">
+                <span className="text-[10px] font-bold text-gray-400">إجمالي السجلات</span>
+                <span className="text-sm font-black text-purple-900 mt-0.5">{storageStats.totalDocumentsCount}</span>
+                <span className="text-[9px] text-purple-700 font-medium">سجل وفاتورة وبند</span>
+              </div>
+            </div>
+
+            {/* Storage Distribution Breakdown */}
+            <div className="bg-white/80 border border-gray-100 rounded-xl p-2.5 space-y-1.5 text-[11px]">
+              <span className="font-bold text-gray-700 block text-[10px]">📑 تفصيل مساحة أقسام البيانات:</span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-gray-600">
+                <div className="flex justify-between bg-gray-50/80 px-2 py-1 rounded-lg">
+                  <span>الفواتير المدمجة ({storageStats.breakdown.invoicesCount}):</span>
+                  <strong className="text-gray-800">{storageStats.breakdown.invoicesMB} MB</strong>
+                </div>
+                <div className="flex justify-between bg-gray-50/80 px-2 py-1 rounded-lg">
+                  <span>الأصناف والنواقص ({storageStats.breakdown.itemsCount}):</span>
+                  <strong className="text-gray-800">{storageStats.breakdown.itemsMB} MB</strong>
+                </div>
+                <div className="flex justify-between bg-gray-50/80 px-2 py-1 rounded-lg">
+                  <span>الأرشيف والمخازن ({storageStats.breakdown.archivesCount}):</span>
+                  <strong className="text-gray-800">{storageStats.breakdown.archivesMB} MB</strong>
+                </div>
+                <div className="flex justify-between bg-gray-50/80 px-2 py-1 rounded-lg">
+                  <span>كتالوج المنتجات ({storageStats.breakdown.catalogCount}):</span>
+                  <strong className="text-gray-800">{storageStats.breakdown.catalogMB} MB</strong>
+                </div>
+                <div className="flex justify-between bg-gray-50/80 px-2 py-1 rounded-lg">
+                  <span>التقارير اليومية ({storageStats.breakdown.reportsCount}):</span>
+                  <strong className="text-gray-800">{storageStats.breakdown.reportsMB} MB</strong>
+                </div>
+                <div className="flex justify-between bg-emerald-50 px-2 py-1 rounded-lg text-emerald-900 font-bold">
+                  <span>حالة النظام:</span>
+                  <span>✅ {storageStats.healthStatus}</span>
+                </div>
+              </div>
+            </div>
+          </div>
           
           {/* Cloud Sync & Migration Card */}
           <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">

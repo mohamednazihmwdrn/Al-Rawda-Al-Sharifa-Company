@@ -1122,7 +1122,7 @@ export default function Dashboard({
                                 <span className="bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">{item.warehouse}</span>
                                 {onDeleteMergedItem && (
                                   <button
-                                    onClick={() => onDeleteMergedItem(mergedInvoices.indexOf(inv), iIndex)}
+                                    onClick={() => onDeleteMergedItem(inv.id, iIndex)}
                                     className="text-red-500 hover:text-red-700 font-bold p-1 hover:bg-red-50 rounded cursor-pointer"
                                     title="حذف البند"
                                   >
@@ -1131,7 +1131,7 @@ export default function Dashboard({
                                 )}
                                 {onEditMergedItem && (
                                   <button
-                                    onClick={() => onEditMergedItem(mergedInvoices.indexOf(inv), iIndex, item)}
+                                    onClick={() => onEditMergedItem(inv.id, iIndex, item)}
                                     className="text-amber-600 hover:text-amber-800 font-bold p-1 hover:bg-amber-50 rounded cursor-pointer"
                                     title="تعديل البند"
                                   >
@@ -1159,7 +1159,7 @@ export default function Dashboard({
                         ➕ إضافة صنف
                       </button>
                       <button
-                        onClick={() => onPrintMergedNormal(mergedInvoices.indexOf(inv))}
+                        onClick={() => onPrintMergedNormal(inv.id)}
                         className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
                       >
                         🖨️ طباعة
@@ -1172,7 +1172,7 @@ export default function Dashboard({
                         ⊞ طباعة مصفوفة
                       </button>
                       <button
-                        onClick={() => onDeleteMerged(mergedInvoices.indexOf(inv))}
+                        onClick={() => onDeleteMerged(inv.id)}
                         className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold p-2 px-2.5 rounded-xl transition-all cursor-pointer"
                       >
                         🗑️ حذف الفاتورة المعتمدة

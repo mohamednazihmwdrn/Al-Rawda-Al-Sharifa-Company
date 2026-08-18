@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, setLogLevel } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCtyKMjC_RkQgmSpCaYhpxcT1A9FFDcEjA",
@@ -11,6 +11,11 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
+// Silence internal Firestore SDK quota backoff warnings
+try {
+  setLogLevel("silent");
+} catch {}
 
 // Get Firestore reference for specific databaseId
 const db = getFirestore(app, "ai-studio-64158c8b-4375-4a58-b775-9e3b8ce26df1");

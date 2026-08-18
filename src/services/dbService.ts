@@ -1563,3 +1563,112 @@ export function recoverPreviousWork(): { recovered: boolean; count: number; deta
     details: `الأصناف: ${totalItems} | الفواتير: ${totalInvoices} | الأرشيف: ${totalArchives} | الكتالوج: ${totalSaved}`
   };
 }
+
+// === Database Storage & Quota Stats (MB calculation) ===
+export interface DatabaseStorageStats {
+  usedBytes: number;
+  usedKB: string;
+  usedMB: string;
+  totalQuotaMB: number;
+  remainingMB: string;
+  percentUsed: string;
+  totalDocumentsCount: number;
+  breakdown: {
+    invoicesMB: string;
+    invoicesCount: number;
+    itemsMB: string;
+    itemsCount: number;
+    archivesMB: string;
+    archivesCount: number;
+    catalogMB: string;
+    catalogCount: number;
+    reportsMB: string;
+    reportsCount: number;
+    usersCount: number;
+  };
+  healthStatus: "ممتازة" | "جيدة" | "تنبيه";
+}
+
+export function getDatabaseStorageStats(): DatabaseStorageStats {
+  try {
+    const items = getLocal<Item[]>("items", []);
+    const mergedInvoices = getLocal<MergedInvoice[]>("mergedInvoices", []);
+    const archives = getLocal<Archive[]>("archives", []);
+    const whArchives = getLocal<WarehouseArchive[]>("warehouseArchives", []);
+    const reports = getLocal<Report[]>("reports", []);
+    const savedItems = getLocal<SavedItem[]>("savedItems", []);
+    const users = getLocal<{ [key: string]: User }>("users", {});
+    const customCompanies = getLocal<CustomCompany[]>("customCompanies", []);
+    const quotations = getLocal<Quotation[]>("quotations", []);
+    const trash = getLocal<TrashItem[]>("trash", []);
+
+    const sizeItems = new Blob([JSON.stringify(items)]).size;
+    const sizeInvoices = new Blob([JSON.stringify(mergedInvoices)]).size;
+    const sizeArchives = new Blob([JSON.stringify(archives)]).size + new Blob([JSON.stringify(whArchives)]).size;
+    const sizeReports = new Blob([JSON.stringify(reports)]).size;
+    const sizeCatalog = new Blob([JSON.stringify(savedItems)]).size + new Blob([JSON.stringify(customCompanies)]).size;
+    const sizeUsers = new Blob([JSON.stringify(users)]).size;
+    const sizeOther = new Blob([JSON.stringify(quotations)]).size + new Blob([JSON.stringify(trash)]).size;
+
+    const totalBytes = sizeItems + sizeInvoices + sizeArchives + sizeReports + sizeCatalog + sizeUsers + sizeOther;
+    const totalMB = totalBytes / (1024 * 1024);
+    const totalKB = totalBytes / 1024;
+    const TOTAL_QUOTA_MB = 1024; // 1GB Firebase Spark Plan Free Quota
+    const remainingMB = Math.max(0, TOTAL_QUOTA_MB - totalMB);
+    const percentUsed = (totalMB / TOTAL_QUOTA_MB) * 100;
+
+    const totalDocs = items.length + mergedInvoices.length + archives.length + whArchives.length + reports.length + savedItems.length + Object.keys(users).length + quotations.length + trash.length;
+
+    let health: "ممتازة" | "جيدة" | "تنبيه" = "ممتازة";
+    if (percentUsed > 80) health = "تنبيه";
+    else if (percentUsed > 50) health = "جيدة";
+
+    return {
+      usedBytes: totalBytes,
+      usedKB: totalKB.toFixed(2),
+      usedMB: totalMB < 0.01 ? (totalMB).toFixed(4) : totalMB.toFixed(2),
+      totalQuotaMB: TOTAL_QUOTA_MB,
+      remainingMB: remainingMB.toFixed(2),
+      percentUsed: percentUsed.toFixed(3) + "%",
+      totalDocumentsCount: totalDocs,
+      breakdown: {
+        invoicesMB: (sizeInvoices / (1024 * 1024)).toFixed(3),
+        invoicesCount: mergedInvoices.length,
+        itemsMB: (sizeItems / (1024 * 1024)).toFixed(3),
+        itemsCount: items.length,
+        archivesMB: (sizeArchives / (1024 * 1024)).toFixed(3),
+        archivesCount: archives.length + whArchives.length,
+        catalogMB: (sizeCatalog / (1024 * 1024)).toFixed(3),
+        catalogCount: savedItems.length,
+        reportsMB: (sizeReports / (1024 * 1024)).toFixed(3),
+        reportsCount: reports.length,
+        usersCount: Object.keys(users).length
+      },
+      healthStatus: health
+    };
+  } catch (err) {
+    return {
+      usedBytes: 0,
+      usedKB: "0.00",
+      usedMB: "0.00",
+      totalQuotaMB: 1024,
+      remainingMB: "1024.00",
+      percentUsed: "0.000%",
+      totalDocumentsCount: 0,
+      breakdown: {
+        invoicesMB: "0.000",
+        invoicesCount: 0,
+        itemsMB: "0.000",
+        itemsCount: 0,
+        archivesMB: "0.000",
+        archivesCount: 0,
+        catalogMB: "0.000",
+        catalogCount: 0,
+        reportsMB: "0.000",
+        reportsCount: 0,
+        usersCount: 0
+      },
+      healthStatus: "ممتازة"
+    };
+  }
+}
