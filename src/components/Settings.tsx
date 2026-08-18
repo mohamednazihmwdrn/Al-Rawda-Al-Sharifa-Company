@@ -606,22 +606,22 @@ export default function Settings({
           <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
-                ☁️ المزامنة السحابية ونقل الشغل
+                ⚡ المزامنة السحابية اللحظية التلقائية
               </span>
               <span className="text-[11px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
-                نشط وآمن 100%
+                مفعلة وتعمل لحظياً 100%
               </span>
             </div>
             <p className="text-[11px] text-emerald-800 leading-relaxed">
-              يقوم هذا الزر بنقل ومزامنة كافة النواقص الحالية، الفواتير المجمعة، أرشيف المخازن، الكتالوج، وحسابات المستخدمين إلى قاعدة البيانات السحابية لتظهر لجميع الفروع فوراً.
+              المزامنة اللحظية تعمل تلقائياً في الخلفية: بمجرد ضغط أمين المخزن على &quot;حفظ وإرسال الفاتورة&quot;، تظهر الفاتورة فوراً على شاشة المدير وجميع الأجهزة دون الحاجة لأي ضغط يدوي.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
               <button
                 onClick={handleSyncToNewCloud}
                 disabled={isSyncingCloud}
-                className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex justify-center items-center gap-1.5 shadow-xs"
+                className="py-2 px-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex justify-center items-center gap-1.5 shadow-xs"
               >
-                {isSyncingCloud ? "⏳ جاري المزامنة..." : "🚀 مزامنة ونقل الشغل للسحابة"}
+                {isSyncingCloud ? "⏳ جاري المزامنة..." : "🔄 مزامنة يدوية احتياطية (للطوارئ)"}
               </button>
               <button
                 onClick={handleRecoverPrevious}

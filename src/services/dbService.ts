@@ -376,23 +376,10 @@ export function listenItems(callback: (items: Item[]) => void) {
   const unsubLocal = registerLocalListener("items", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "items"), (snapshot) => {
-    const local = getLocal<Item[]>("items", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, Item>();
     snapshot.forEach((d: any) => {
       const data = d.data() as Item;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    // Merge with any local item not in Firestore
-    local.forEach(item => {
-      if (item.id && !firestoreMap.has(item.id)) {
-        firestoreMap.set(item.id, item);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());
@@ -461,22 +448,10 @@ export function listenMergedInvoices(callback: (invoices: MergedInvoice[]) => vo
   const unsubLocal = registerLocalListener("mergedInvoices", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "mergedInvoices"), (snapshot) => {
-    const local = getLocal<MergedInvoice[]>("mergedInvoices", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, MergedInvoice>();
     snapshot.forEach((d: any) => {
       const data = d.data() as MergedInvoice;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    local.forEach(inv => {
-      if (inv.id && !firestoreMap.has(inv.id)) {
-        firestoreMap.set(inv.id, inv);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());
@@ -589,22 +564,10 @@ export function listenArchives(callback: (archives: Archive[]) => void) {
   const unsubLocal = registerLocalListener("archives", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "archives"), (snapshot) => {
-    const local = getLocal<Archive[]>("archives", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, Archive>();
     snapshot.forEach((d: any) => {
       const data = d.data() as Archive;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    local.forEach(arch => {
-      if (arch.id && !firestoreMap.has(arch.id)) {
-        firestoreMap.set(arch.id, arch);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());
@@ -646,22 +609,10 @@ export function listenWarehouseArchives(callback: (archives: WarehouseArchive[])
   const unsubLocal = registerLocalListener("warehouseArchives", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "warehouseArchives"), (snapshot) => {
-    const local = getLocal<WarehouseArchive[]>("warehouseArchives", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, WarehouseArchive>();
     snapshot.forEach((d: any) => {
       const data = d.data() as WarehouseArchive;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    local.forEach(arch => {
-      if (arch.id && !firestoreMap.has(arch.id)) {
-        firestoreMap.set(arch.id, arch);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());
@@ -703,22 +654,10 @@ export function listenReports(callback: (reports: Report[]) => void) {
   const unsubLocal = registerLocalListener("reports", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "reports"), (snapshot) => {
-    const local = getLocal<Report[]>("reports", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, Report>();
     snapshot.forEach((d: any) => {
       const data = d.data() as Report;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    local.forEach(rep => {
-      if (rep.id && !firestoreMap.has(rep.id)) {
-        firestoreMap.set(rep.id, rep);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());
@@ -760,22 +699,10 @@ export function listenSavedItems(callback: (savedItems: SavedItem[]) => void) {
   const unsubLocal = registerLocalListener("savedItems", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "savedItems"), (snapshot) => {
-    const local = getLocal<SavedItem[]>("savedItems", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, SavedItem>();
     snapshot.forEach((d: any) => {
       const data = d.data() as SavedItem;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    local.forEach(s => {
-      if (s.id && !firestoreMap.has(s.id)) {
-        firestoreMap.set(s.id, s);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());
@@ -866,22 +793,10 @@ export function listenCustomCompanies(callback: (companies: CustomCompany[]) => 
   const unsubLocal = registerLocalListener("customCompanies", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "customCompanies"), (snapshot) => {
-    const local = getLocal<CustomCompany[]>("customCompanies", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, CustomCompany>();
     snapshot.forEach((d: any) => {
       const data = d.data() as CustomCompany;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    local.forEach(comp => {
-      if (comp.id && !firestoreMap.has(comp.id)) {
-        firestoreMap.set(comp.id, comp);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());
@@ -923,22 +838,10 @@ export function listenQuotations(callback: (quotations: Quotation[]) => void) {
   const unsubLocal = registerLocalListener("quotations", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "quotations"), (snapshot) => {
-    const local = getLocal<Quotation[]>("quotations", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, Quotation>();
     snapshot.forEach((d: any) => {
       const data = d.data() as Quotation;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    local.forEach(q => {
-      if (q.id && !firestoreMap.has(q.id)) {
-        firestoreMap.set(q.id, q);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());
@@ -980,22 +883,10 @@ export function listenTrash(callback: (trashItems: TrashItem[]) => void) {
   const unsubLocal = registerLocalListener("trash", callback);
 
   const unsubFirestore = safeOnSnapshot(collection(db, "trash"), (snapshot) => {
-    const local = getLocal<TrashItem[]>("trash", []);
-    if (snapshot.empty) {
-      if (local.length > 0) callback(local);
-      return;
-    }
-
     const firestoreMap = new Map<string, TrashItem>();
     snapshot.forEach((d: any) => {
       const data = d.data() as TrashItem;
       if (data && data.id) firestoreMap.set(data.id, data);
-    });
-
-    local.forEach(t => {
-      if (t.id && !firestoreMap.has(t.id)) {
-        firestoreMap.set(t.id, t);
-      }
     });
 
     const mergedList = Array.from(firestoreMap.values());

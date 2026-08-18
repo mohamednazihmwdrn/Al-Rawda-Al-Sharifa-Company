@@ -1,7 +1,13 @@
 import React, { useState } from "react";
 import { User, Report } from "../types";
 import { printInvoice, printMatrix } from "../utils/print";
-import { exportExcel } from "../utils/export";
+import { 
+  exportExcel, 
+  exportSingleReport, 
+  exportReportsSummary, 
+  exportAllReportsDetailed,
+  exportAllReportsWorkbookXlsx
+} from "../utils/export";
 import { compareDatesDescending } from "../utils/date";
 import PrintMatrixFilterModal from "./PrintMatrixFilterModal";
 
@@ -100,18 +106,46 @@ export default function Reports({
 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 pb-4 border-b border-gray-100">
         <div>
           <h2 className="text-xl font-bold text-gray-800 border-r-4 border-[#8b6b4d] pr-3">📄 التقارير اليومية المؤرشفة</h2>
-          <p className="text-xs text-gray-400 mt-1">التقارير المرحلة تلقائياً الساعة 10 مساءً أو يدوياً من المدير</p>
+          <p className="text-xs text-gray-400 mt-1">التقارير المرحلة تلقائياً الساعة 10 مساءً أو يدوياً من المدير مع إمكانية تصديرها كـ CSV / Excel</p>
         </div>
         {reports.length > 0 && (
-          <button
-            onClick={handleExportAll}
-            className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-bold p-2.5 px-4 rounded-xl cursor-pointer transition-all flex items-center gap-1.5"
-          >
-            📥 تصدير جميع التقارير (CSV)
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => exportAllReportsWorkbookXlsx(reports)}
+              className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black p-2.5 px-3.5 rounded-xl cursor-pointer transition-all flex items-center gap-1.5 shadow-sm"
+              title="تصدير مصنف إكسل كامل متعدد الأوراق (ملخص + كافة البنود)"
+            >
+              <span>📗</span>
+              <span>مصنف Excel شامل (.xlsx)</span>
+            </button>
+            <button
+              onClick={() => exportReportsSummary(reports, "excel")}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2.5 px-3 rounded-xl cursor-pointer transition-all flex items-center gap-1.5 shadow-xs"
+              title="تصدير جدول ملخص التقارير اليومية بصيغة Excel"
+            >
+              <span>📊</span>
+              <span>ملخص التقارير (Excel)</span>
+            </button>
+            <button
+              onClick={() => exportAllReportsDetailed(reports, "excel")}
+              className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold p-2.5 px-3 rounded-xl cursor-pointer transition-all flex items-center gap-1.5 shadow-xs"
+              title="تصدير كافة بنود وأصناف التقارير كجدول Excel"
+            >
+              <span>📑</span>
+              <span>كافة البنود (Excel)</span>
+            </button>
+            <button
+              onClick={() => exportAllReportsDetailed(reports, "csv")}
+              className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-bold p-2.5 px-3 rounded-xl cursor-pointer transition-all flex items-center gap-1.5 shadow-xs"
+              title="تصدير كافة بنود وأصناف التقارير كملف CSV يدعم العربي"
+            >
+              <span>📥</span>
+              <span>كافة البنود (CSV)</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -156,10 +190,20 @@ export default function Reports({
                   ⊞ طباعة مصفوفة
                 </button>
                 <button
-                  onClick={() => exportExcel(report.items, `تقرير_${report.date}`)}
-                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold p-2 px-3 rounded-lg cursor-pointer transition-all"
+                  onClick={() => exportSingleReport(report, "csv")}
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold p-2 px-3 rounded-lg cursor-pointer transition-all flex items-center gap-1"
+                  title="تصدير بنود هذا التقرير كملف CSV"
                 >
-                  📥 تصدير
+                  <span>📥</span>
+                  <span>CSV</span>
+                </button>
+                <button
+                  onClick={() => exportSingleReport(report, "excel")}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2 px-3 rounded-lg cursor-pointer transition-all flex items-center gap-1"
+                  title="تصدير بنود هذا التقرير كجدول Excel"
+                >
+                  <span>📊</span>
+                  <span>Excel</span>
                 </button>
                 <button
                   onClick={() => setAddItemReportModal(report)}
