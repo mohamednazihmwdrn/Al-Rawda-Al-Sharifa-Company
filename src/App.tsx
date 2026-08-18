@@ -1982,61 +1982,120 @@ export default function App() {
 
     const { parentType, id, index, company, fixedName, description, note } = editingItem;
 
-    if (!company.trim() || !description.trim()) {
-      alert("⚠️ اسم الشركة والبيان لا يمكن تركهما فارغين!");
-      return;
-    }
+    const cleanCompany = (company || "").trim() || "1";
+    const cleanFixedName = (fixedName || "").trim() || "صنف بدون اسم";
+    const cleanDesc = (description || "").trim() || "-";
+    const cleanNote = (note || "").trim();
 
     try {
       if (parentType === "items") {
-        await handleEditActiveItem(id, { company, fixedName, description, note });
+        await handleEditActiveItem(id, {
+          company: cleanCompany,
+          fixedName: cleanFixedName,
+          description: cleanDesc,
+          note: cleanNote
+        });
       } else if (parentType === "reports") {
         const rep = reports.find(r => r.items.some(it => it.id === id || (index !== undefined && r.items[index]?.id === id)));
         if (rep && index !== undefined) {
-          await handleEditItemInReport(rep.id, index, { company, fixedName, description, note });
+          await handleEditItemInReport(rep.id, index, {
+            company: cleanCompany,
+            fixedName: cleanFixedName,
+            description: cleanDesc,
+            note: cleanNote
+          });
         } else {
-          // Fallback search by index/matching if IDs aren't fully set
           const fallbackRep = reports.find(r => index !== undefined && r.items[index] !== undefined);
           if (fallbackRep && index !== undefined) {
-            await handleEditItemInReport(fallbackRep.id, index, { company, fixedName, description, note });
+            await handleEditItemInReport(fallbackRep.id, index, {
+              company: cleanCompany,
+              fixedName: cleanFixedName,
+              description: cleanDesc,
+              note: cleanNote
+            });
           }
         }
       } else if (parentType === "archives") {
         const arch = archives.find(a => a.items.some(it => it.id === id || (index !== undefined && a.items[index]?.id === id)));
         if (arch && index !== undefined) {
-          await handleEditItemInArchive(arch.id, index, { company, fixedName, description, note });
+          await handleEditItemInArchive(arch.id, index, {
+            company: cleanCompany,
+            fixedName: cleanFixedName,
+            description: cleanDesc,
+            note: cleanNote
+          });
         } else {
           const fallbackArch = archives.find(a => index !== undefined && a.items[index] !== undefined);
           if (fallbackArch && index !== undefined) {
-            await handleEditItemInArchive(fallbackArch.id, index, { company, fixedName, description, note });
+            await handleEditItemInArchive(fallbackArch.id, index, {
+              company: cleanCompany,
+              fixedName: cleanFixedName,
+              description: cleanDesc,
+              note: cleanNote
+            });
           }
         }
       } else if (parentType === "warehouseArchives") {
         const wa = warehouseArchives.find(w => w.items.some(it => it.id === id || (index !== undefined && w.items[index]?.id === id)));
         if (wa && index !== undefined) {
-          await handleEditItemInWarehouseArchive(wa.id, index, { company, fixedName, description, note });
+          await handleEditItemInWarehouseArchive(wa.id, index, {
+            company: cleanCompany,
+            fixedName: cleanFixedName,
+            description: cleanDesc,
+            note: cleanNote
+          });
         } else {
           const fallbackWa = warehouseArchives.find(w => index !== undefined && w.items[index] !== undefined);
           if (fallbackWa && index !== undefined) {
-            await handleEditItemInWarehouseArchive(fallbackWa.id, index, { company, fixedName, description, note });
+            await handleEditItemInWarehouseArchive(fallbackWa.id, index, {
+              company: cleanCompany,
+              fixedName: cleanFixedName,
+              description: cleanDesc,
+              note: cleanNote
+            });
           }
         }
       } else if (parentType === "mergedInvoices") {
-        const inv = mergedInvoices.find(m => m.id === editingItem.parentId);
-        if (inv && index !== undefined) {
-          const updatedItems = [...inv.items];
-          updatedItems[index] = {
-            ...updatedItems[index],
-            company,
-            fixedName,
-            description,
-            note
-          };
-          await saveMergedInvoice({
-            ...inv,
-            items: updatedItems
-          });
-          alert("✅ تم تعديل البند في الفاتورة المدمجة بنجاح!");
+        const targetInvId = editingItem.parentId;
+        const inv = mergedInvoices.find(m => m.id === targetInvId || m.items.some(it => it.id === id));
+        if (inv) {
+          const itemIdx = (index !== undefined && index >= 0 && index < inv.items.length) 
+            ? index 
+            : inv.items.findIndex(it => it.id === id);
+
+          if (itemIdx >= 0) {
+            const updatedItems = [...inv.items];
+            updatedItems[itemIdx] = {
+              ...updatedItems[itemIdx],
+              company: cleanCompany,
+              fixedName: cleanFixedName,
+              description: cleanDesc,
+              note: cleanNote
+            };
+            const updatedInv = {
+              ...inv,
+              items: updatedItems,
+              total: updatedItems.length
+            };
+            await saveMergedInvoice(updatedInv);
+            setMergedInvoices(prev => prev.map(m => m.id === updatedInv.id ? updatedInv : m));
+
+            // Also update item in items state/firestore if exists
+            const existingItem = items.find(i => i.id === id);
+            if (existingItem) {
+              const updatedItemObj = {
+                ...existingItem,
+                company: cleanCompany,
+                fixedName: cleanFixedName,
+                description: cleanDesc,
+                note: cleanNote
+              };
+              await saveItem(updatedItemObj);
+              setItems(prev => prev.map(i => i.id === id ? updatedItemObj : i));
+            }
+
+            alert("✅ تم تعديل البند في الفاتورة المدمجة بنجاح!");
+          }
         }
         setEditingItem(null);
       }
