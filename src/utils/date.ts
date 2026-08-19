@@ -100,6 +100,23 @@ export function parseArabicOrStandardDate(dateStr: string, timeStr?: string): Da
 }
 
 /**
+ * Checks if two date strings represent the same calendar day,
+ * taking into account Arabic numerals, standard numerals, and different formatting.
+ */
+export function isSameDay(date1?: string, date2?: string): boolean {
+  if (!date1 || !date2) return false;
+  if (date1.trim() === date2.trim()) return true;
+  const d1 = parseArabicOrStandardDate(date1);
+  const d2 = parseArabicOrStandardDate(date2);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return false;
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
+}
+
+/**
  * Comparator to sort dates/times descending (newest on top, oldest at bottom)
  */
 export function compareDatesDescending<T extends { date?: string; time?: string; invoiceNumber?: number; createdAt?: number | string }>(a: T, b: T): number {
@@ -116,6 +133,13 @@ export function compareDatesDescending<T extends { date?: string; time?: string;
     return numB - numA;
   }
   return 0;
+}
+
+/**
+ * Comparator to sort dates/times ascending (oldest on top, newest at bottom)
+ */
+export function compareDatesAscending<T extends { date?: string; time?: string; invoiceNumber?: number; createdAt?: number | string }>(a: T, b: T): number {
+  return -compareDatesDescending(a, b);
 }
 
 /**

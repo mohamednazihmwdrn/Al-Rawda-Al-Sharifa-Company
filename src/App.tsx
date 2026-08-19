@@ -24,6 +24,7 @@ import {
   saveUser, 
   removeUser, 
   saveItem, 
+  saveItems,
   saveMergedInvoice, 
   deleteMergedInvoice, 
   saveArchive, 
@@ -478,6 +479,21 @@ export default function App() {
     return () => clearInterval(checkInterval);
   }, []);
 
+  // Automatic real-time synchronization of waiting items from warehouses into pending merged invoice
+  useEffect(() => {
+    const waitingItems = items.filter(it => it.status === "waiting");
+    if (waitingItems.length > 0) {
+      const pendingMergedInvs = mergedInvoices.filter(m => m.status === "pending");
+      const itemsInPending = new Set<string>();
+      pendingMergedInvs.forEach(inv => (inv.items || []).forEach(i => { if (i.id) itemsInPending.add(i.id); }));
+      
+      const unmergedWaiting = waitingItems.filter(i => !itemsInPending.has(i.id));
+      if (unmergedWaiting.length > 0) {
+        autoMergePendingInvoices(unmergedWaiting);
+      }
+    }
+  }, [items, mergedInvoices]);
+
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem("current_user_session", JSON.stringify(user));
@@ -530,7 +546,6 @@ export default function App() {
   }, []);
 
   // === Deficits and Cart saving logic ===
-  // OPTIMIZED: Single-write batch operation to prevent Firestore quota exhaustion and eliminate loops
   const handleSaveCart = async (cartItems: LocalCartItem[]) => {
     if (!currentUser || cartItems.length === 0) return;
     const warehouse = currentUser.role === "مدير" ? "مخزن المدير" : (currentUser.warehouse || "المدير");
@@ -556,11 +571,30 @@ export default function App() {
       createdAt: timestamp
     }));
 
-    // 2. Update local state immediately for zero-delay UI response
+    // 2. Update local state and save items to Firestore
     setItems(prev => [...newItems, ...prev]);
+    await saveItems(newItems);
 
-    // 3. Save into single consolidated pending MergedInvoice directly in ONE Firestore write
-    // This avoids per-item individual writes (N writes -> 1 write)
+    // 3. Save warehouse archive record for this warehouse's sent history
+    try {
+      const whArchiveId = `wh_sent_${timestamp}_${Math.random().toString(36).slice(2, 6)}`;
+      await saveWarehouseArchive({
+        id: whArchiveId,
+        title: `فاتورة مرسلة - ${warehouse} (${today})`,
+        date: today,
+        time: nowTime,
+        warehouse,
+        user: currentUser.displayName || currentUser.username,
+        items: newItems,
+        total: newItems.length,
+        status: "🕒 بانتظار اعتماد المدير",
+        unread: true
+      });
+    } catch (e) {
+      console.warn("Failed to create warehouse sent archive:", e);
+    }
+
+    // 4. Save into consolidated pending MergedInvoice directly
     await autoMergePendingInvoices(newItems);
   };
 
@@ -939,6 +973,155 @@ export default function App() {
         console.error("Error deleting merged invoice:", err);
         alert("❌ حدث خطأ أثناء حذف الفاتورة.");
       }
+    }
+  };
+
+  const handleBatchApproveMerged = async (invoiceIds: string[]) => {
+    if (!invoiceIds || invoiceIds.length === 0) return;
+    try {
+      const now = getNow();
+      const approvedAtTime = getFullDate();
+      let successCount = 0;
+
+      for (const id of invoiceIds) {
+        const invoice = mergedInvoices.find(m => m.id === id);
+        if (!invoice || invoice.status === "approved" || invoice.status === "auto_approved") continue;
+
+        const updatedItems = invoice.items.map((item, idx) => ({
+          ...item,
+          id: item.id || `item_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+          status: "approved" as const,
+          approvedAt: approvedAtTime,
+          deliveryStatus: item.deliveryStatus || "pending"
+        }));
+
+        const approvedInvoice: MergedInvoice = {
+          ...invoice,
+          items: updatedItems,
+          status: "approved",
+          approvedAt: approvedAtTime,
+          warehouses: invoice.warehouses || Array.from(new Set(updatedItems.map(i => i.warehouse).filter(Boolean)))
+        };
+
+        setMergedInvoices(prev => prev.map(m => m.id === invoice.id ? approvedInvoice : m));
+        const updatedMap = new Map(updatedItems.map(i => [i.id, i]));
+        setItems(prev => prev.map(it => updatedMap.has(it.id) ? updatedMap.get(it.id)! : it));
+
+        await saveMergedInvoice(approvedInvoice);
+        await Promise.all(updatedItems.map(item => saveItem(item)));
+
+        const archiveId = "arch_" + invoice.id + "_" + Date.now();
+        await saveArchive({
+          id: archiveId,
+          title: `فاتورة مدمجة #${invoice.invoiceNumber} - ${invoice.date}`,
+          date: invoice.date,
+          time: now,
+          warehouse: "جميع المخازن",
+          user: currentUser?.displayName || currentUser?.username || "المدير",
+          items: updatedItems,
+          total: updatedItems.length,
+          approvedAt: approvedAtTime,
+          merged: true,
+          warehouses: approvedInvoice.warehouses,
+          invoiceNumber: invoice.invoiceNumber,
+          unread: true
+        });
+
+        const grouped: { [key: string]: Item[] } = {};
+        updatedItems.forEach(item => {
+          const source = item.warehouse || "غير معروف";
+          if (!grouped[source]) grouped[source] = [];
+          grouped[source].push(item);
+        });
+
+        for (const [wh, list] of Object.entries(grouped)) {
+          const whArchiveId = "wh_arch_" + Date.now() + "_" + Math.random().toString(36).slice(2, 5);
+          await saveWarehouseArchive({
+            id: whArchiveId,
+            title: `فاتورة ${wh} - ${invoice.date} (معتمدة)`,
+            date: invoice.date,
+            time: now,
+            warehouse: wh,
+            user: currentUser?.displayName || currentUser?.username || "المدير",
+            items: list,
+            total: list.length,
+            status: "✅ معتمدة من المدير",
+            invoiceNumber: invoice.invoiceNumber,
+            unread: true
+          });
+        }
+
+        const reportId = "rep_" + Date.now() + "_" + Math.random().toString(36).slice(2, 5);
+        await saveReport({
+          id: reportId,
+          date: invoice.date,
+          time: now,
+          items: updatedItems,
+          warehouse: "جميع المخازن (معتمد)",
+          total: updatedItems.length,
+          invoiceNumber: invoice.invoiceNumber,
+          approvedAt: approvedAtTime
+        });
+
+        successCount++;
+      }
+
+      alert(`✅ تم اعتماد عدد (${successCount}) فواتير مدمجة بنجاح وانتقالها للفواتير المعتمدة والأرشيف!`);
+    } catch (err) {
+      console.error("Error batch approving merged invoices:", err);
+      alert("❌ حدث خطأ أثناء اعتماد الفواتير المحددة.");
+    }
+  };
+
+  const handleBatchDeleteMerged = async (invoiceIds: string[]) => {
+    if (!invoiceIds || invoiceIds.length === 0) return;
+    try {
+      const today = getToday();
+      const now = getNow();
+      const userDisplay = currentUser?.displayName || currentUser?.username || "المدير";
+      let count = 0;
+
+      for (const id of invoiceIds) {
+        const invoice = mergedInvoices.find(m => m.id === id);
+        if (!invoice) continue;
+
+        const trashRecord: TrashItem = {
+          id: "trash_merged_" + invoice.id + "_" + Date.now(),
+          type: "mergedInvoice",
+          title: `فاتورة مدمجة #${invoice.invoiceNumber} (${invoice.date})`,
+          data: invoice,
+          itemCount: invoice.items?.length || invoice.total || 0,
+          deletedAt: `${today} - ${now}`,
+          deletedTimestamp: Date.now(),
+          deletedBy: userDisplay,
+          warehouse: invoice.warehouses?.join(" - ") || "جميع المستودعات",
+          originalInvoiceNumber: invoice.invoiceNumber
+        };
+
+        await moveToTrash(trashRecord);
+        await deleteMergedInvoice(invoice.id);
+        setMergedInvoices(prev => prev.filter(m => m.id !== invoice.id));
+
+        if (invoice.items && invoice.items.length > 0) {
+          const itemIds = new Set<string>();
+          for (const item of invoice.items) {
+            if (item.id) {
+              itemIds.add(item.id);
+              await updateItemStatus(item.id, "deleted", {
+                deletedAt: getFullDate(),
+                deletedFrom: `فاتورة مدمجة #${invoice.invoiceNumber}`
+              });
+            }
+          }
+          setItems(prev => prev.map(it => itemIds.has(it.id) ? { ...it, status: "deleted" as const } : it));
+        }
+        count++;
+      }
+
+      alert(`🗑️ تم حذف ونقل عدد (${count}) فواتير مدمجة إلى سلة المحذوفات بنجاح!`);
+    } catch (err) {
+      console.error("Error batch deleting merged invoices:", err);
+      alert("❌ حدث خطأ أثناء حذف الفواتير المحددة.");
     }
   };
 
@@ -2453,6 +2636,8 @@ export default function App() {
             onApproveMerged={handleApproveMerged}
             onRejectMerged={handleRejectMerged}
             onDeleteMerged={handleDeleteMerged}
+            onBatchApproveMerged={handleBatchApproveMerged}
+            onBatchDeleteMerged={handleBatchDeleteMerged}
             onApproveWaiting={handleApproveWaitingItem}
             onRejectWaiting={handleRejectWaitingItem}
             onRestoreDeleted={handleRestoreDeletedItem}

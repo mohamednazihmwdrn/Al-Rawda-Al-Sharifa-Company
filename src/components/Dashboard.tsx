@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { User, Item, MergedInvoice } from "../types";
 import { AYAT, isItemInTodayWindow, getToday } from "../data/constants";
 import { printInvoice } from "../utils/print";
-import { compareDatesDescending, parseArabicOrStandardDate, isWarehouseMatch } from "../utils/date";
+import { compareDatesDescending, compareDatesAscending, parseArabicOrStandardDate, isWarehouseMatch } from "../utils/date";
 import PrintMatrixFilterModal from "./PrintMatrixFilterModal";
 
 interface DashboardProps {
@@ -13,6 +13,8 @@ interface DashboardProps {
   onApproveMerged: (indexOrId: number | string) => void;
   onRejectMerged: (indexOrId: number | string) => void;
   onDeleteMerged: (indexOrId: number | string) => void;
+  onBatchApproveMerged?: (invoiceIds: string[]) => Promise<void> | void;
+  onBatchDeleteMerged?: (invoiceIds: string[]) => Promise<void> | void;
   onApproveWaiting: (id: string) => void;
   onRejectWaiting: (id: string) => void;
   onRestoreDeleted: (id: string) => void;
@@ -37,6 +39,8 @@ export default function Dashboard({
   onApproveMerged,
   onRejectMerged,
   onDeleteMerged,
+  onBatchApproveMerged,
+  onBatchDeleteMerged,
   onApproveWaiting,
   onRejectWaiting,
   onRestoreDeleted,
@@ -56,6 +60,8 @@ export default function Dashboard({
   const [addItemModalInvoice, setAddItemModalInvoice] = useState<MergedInvoice | null>(null);
   const [matrixModalData, setMatrixModalData] = useState<{ items: Item[]; title: string; defaultWarehouse?: string } | null>(null);
   const [approvedFilterMode, setApprovedFilterMode] = useState<"all" | "today">("all");
+  const [pendingSortOrder, setPendingSortOrder] = useState<"newest" | "oldest">("newest");
+  const [approvedSortOrder, setApprovedSortOrder] = useState<"newest" | "oldest">("newest");
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [modalWarehouse, setModalWarehouse] = useState("مخزن النحاس");
   const [modalCustomWarehouse, setModalCustomWarehouse] = useState("");
@@ -63,6 +69,12 @@ export default function Dashboard({
   const [modalFixed, setModalFixed] = useState("");
   const [modalDesc, setModalDesc] = useState("");
   const [modalNote, setModalNote] = useState("");
+
+  // Multi-selection states for bulk actions
+  const [selectedPendingInvoiceIds, setSelectedPendingInvoiceIds] = useState<string[]>([]);
+  const [selectedApprovedInvoiceIds, setSelectedApprovedInvoiceIds] = useState<string[]>([]);
+  const [isBulkPendingLoading, setIsBulkPendingLoading] = useState(false);
+  const [isBulkApprovedLoading, setIsBulkApprovedLoading] = useState(false);
 
   const defaultWarehouses = ["مخزن النحاس", "مخزن النادي", "مخزن المدير"];
   const availableWarehouses = Array.from(new Set([
@@ -102,6 +114,108 @@ export default function Dashboard({
     setModalDesc("");
     setModalNote("");
     setModalCustomWarehouse("");
+  };
+
+  // Bulk Actions Handlers for Pending Merged Invoices
+  const handleToggleSelectAllPending = (visibleList: MergedInvoice[]) => {
+    const visibleIds = visibleList.map(inv => inv.id);
+    if (visibleIds.length === 0) return;
+    const allSelected = visibleIds.every(id => selectedPendingInvoiceIds.includes(id));
+    if (allSelected) {
+      setSelectedPendingInvoiceIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedPendingInvoiceIds(Array.from(new Set([...selectedPendingInvoiceIds, ...visibleIds])));
+    }
+  };
+
+  const handleTogglePendingInvoice = (id: string) => {
+    setSelectedPendingInvoiceIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkApproveSelectedPending = async () => {
+    if (selectedPendingInvoiceIds.length === 0) return;
+    if (!confirm(`هل أنت متأكد من اعتماد عدد (${selectedPendingInvoiceIds.length}) فاتورة مدمجة محددة دفعة واحدة؟`)) return;
+
+    setIsBulkPendingLoading(true);
+    try {
+      if (onBatchApproveMerged) {
+        await onBatchApproveMerged(selectedPendingInvoiceIds);
+      } else {
+        for (const id of selectedPendingInvoiceIds) {
+          await onApproveMerged(id);
+        }
+      }
+      setSelectedPendingInvoiceIds([]);
+    } catch (err) {
+      console.error("Bulk approve error:", err);
+      alert("❌ حدث خطأ أثناء الاعتماد المجمع.");
+    } finally {
+      setIsBulkPendingLoading(false);
+    }
+  };
+
+  const handleBulkDeleteSelectedPending = async () => {
+    if (selectedPendingInvoiceIds.length === 0) return;
+    if (!confirm(`⚠️ هل أنت متأكد من حذف ونقل عدد (${selectedPendingInvoiceIds.length}) فاتورة مدمجة محددة إلى سلة المحذوفات؟`)) return;
+
+    setIsBulkPendingLoading(true);
+    try {
+      if (onBatchDeleteMerged) {
+        await onBatchDeleteMerged(selectedPendingInvoiceIds);
+      } else {
+        for (const id of selectedPendingInvoiceIds) {
+          await onDeleteMerged(id);
+        }
+      }
+      setSelectedPendingInvoiceIds([]);
+    } catch (err) {
+      console.error("Bulk delete error:", err);
+      alert("❌ حدث خطأ أثناء الحذف المجمع.");
+    } finally {
+      setIsBulkPendingLoading(false);
+    }
+  };
+
+  // Bulk Actions Handlers for Approved Merged Invoices
+  const handleToggleSelectAllApproved = (visibleList: MergedInvoice[]) => {
+    const visibleIds = visibleList.map(inv => inv.id);
+    if (visibleIds.length === 0) return;
+    const allSelected = visibleIds.every(id => selectedApprovedInvoiceIds.includes(id));
+    if (allSelected) {
+      setSelectedApprovedInvoiceIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedApprovedInvoiceIds(Array.from(new Set([...selectedApprovedInvoiceIds, ...visibleIds])));
+    }
+  };
+
+  const handleToggleApprovedInvoice = (id: string) => {
+    setSelectedApprovedInvoiceIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDeleteSelectedApproved = async () => {
+    if (selectedApprovedInvoiceIds.length === 0) return;
+    if (!confirm(`⚠️ هل أنت متأكد من حذف ونقل عدد (${selectedApprovedInvoiceIds.length}) فاتورة مدمجة معتمدة محددة إلى سلة المحذوفات؟`)) return;
+
+    setIsBulkApprovedLoading(true);
+    try {
+      if (onBatchDeleteMerged) {
+        await onBatchDeleteMerged(selectedApprovedInvoiceIds);
+      } else {
+        for (const id of selectedApprovedInvoiceIds) {
+          await onDeleteMerged(id);
+        }
+      }
+      setSelectedApprovedInvoiceIds([]);
+    } catch (err) {
+      console.error("Bulk delete approved error:", err);
+      alert("❌ حدث خطأ أثناء الحذف المجمع للفواتير المعتمدة.");
+    } finally {
+      setIsBulkApprovedLoading(false);
+    }
   };
 
   const changeVerse = () => {
@@ -397,33 +511,103 @@ export default function Dashboard({
           {/* 1. HERO SECTION FOR MANAGER: MERGED INVOICES SENT BY WAREHOUSES */}
           <div className="space-y-6" id="manager-merged-invoices-hub">
             {/* Sub-section A: Pending Merged Invoices */}
-            <div id="pending-merged-invoices-section" className="bg-white dark:bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border-2 border-amber-300/70 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-2xl">📨</span>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-black text-amber-900 dark:text-amber-300">
-                        فواتير مدمجة بانتظار الاعتماد والمراجعة
-                      </h3>
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${
-                        pendingMergedInvoices.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-emerald-100 text-emerald-800"
-                      }`}>
-                        {pendingMergedInvoices.length} فاتورة معلقة
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      الفواتير التي أرسلتها المستودعات وتنتظر اعتماد الإدارة لاعتماد توزيع البضائع
-                    </p>
-                  </div>
-                </div>
-              </div>
+            {(() => {
+              const pendingFiltered = mergedInvoices.filter(m => m.status === "pending");
+              const isAllPendingSelected = pendingFiltered.length > 0 && pendingFiltered.every(inv => selectedPendingInvoiceIds.includes(inv.id));
+              const selectedPendingCount = selectedPendingInvoiceIds.filter(id => pendingFiltered.some(inv => inv.id === id)).length;
 
-              <div className="space-y-4 max-h-[480px] overflow-y-auto">
-                {(() => {
-                  const pendingFiltered = mergedInvoices.filter(m => m.status === "pending");
-                  if (pendingFiltered.length === 0) {
-                    return (
+              return (
+                <div id="pending-merged-invoices-section" className="bg-white dark:bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border-2 border-amber-300/70 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-2xl">📨</span>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-lg font-black text-amber-900 dark:text-amber-300">
+                            فواتير مدمجة بانتظار الاعتماد والمراجعة
+                          </h3>
+                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${
+                            pendingFiltered.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-emerald-100 text-emerald-800"
+                          }`}>
+                            {pendingFiltered.length} فاتورة معلقة
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          الفواتير التي أرسلتها المستودعات وتنتظر اعتماد الإدارة لتوزيع البضائع
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {pendingFiltered.length > 0 && (
+                        <button
+                          onClick={() => handleToggleSelectAllPending(pendingFiltered)}
+                          className={`flex items-center gap-1.5 text-xs font-black px-3.5 py-1.5 rounded-xl border transition-all cursor-pointer shadow-2xs active:scale-95 ${
+                            isAllPendingSelected
+                              ? "bg-amber-600 text-white border-amber-600 shadow-amber-500/20"
+                              : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-amber-300 dark:border-amber-700/60 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                          }`}
+                          title="تحديد أو إلغاء تحديد كافة الفواتير المعلقة"
+                        >
+                          <span className="text-sm font-bold">{isAllPendingSelected ? "☑️" : "☐"}</span>
+                          <span>{isAllPendingSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}</span>
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => setPendingSortOrder(prev => prev === "newest" ? "oldest" : "newest")}
+                        className="flex items-center gap-1.5 bg-amber-100/80 hover:bg-amber-200 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-xs font-bold px-3 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700/60 transition-all cursor-pointer shadow-2xs active:scale-95"
+                        title="التبديل بين ترتيب الفواتير حسب الأحدث أو الأقدم"
+                      >
+                        <span>{pendingSortOrder === "newest" ? "⬇️" : "⬆️"}</span>
+                        <span>{pendingSortOrder === "newest" ? "الترتيب: الأحدث أولاً" : "الترتيب: الأقدم أولاً"}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Bulk Action Toolbar for Selected Pending Invoices */}
+                  {selectedPendingCount > 0 && (
+                    <div className="bg-amber-100/90 dark:bg-amber-950/70 border-2 border-amber-400 dark:border-amber-600 p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-xs animate-fade-in">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">📌</span>
+                        <div>
+                          <span className="text-xs sm:text-sm font-black text-amber-950 dark:text-amber-200">
+                            تم تحديد ({selectedPendingCount}) من إجمالي ({pendingFiltered.length}) فاتورة معلقة
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          disabled={isBulkPendingLoading}
+                          onClick={handleBulkApproveSelectedPending}
+                          className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black px-4 py-2 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <span>{isBulkPendingLoading ? "⏳" : "✓"}</span>
+                          <span>{isBulkPendingLoading ? "جاري الاعتماد..." : `اعتماد الفواتير المحددة (${selectedPendingCount})`}</span>
+                        </button>
+
+                        <button
+                          disabled={isBulkPendingLoading}
+                          onClick={handleBulkDeleteSelectedPending}
+                          className="bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-black px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <span>{isBulkPendingLoading ? "⏳" : "🗑️"}</span>
+                          <span>{isBulkPendingLoading ? "جاري الحذف..." : `حذف الفواتير المحددة (${selectedPendingCount})`}</span>
+                        </button>
+
+                        <button
+                          onClick={() => setSelectedPendingInvoiceIds([])}
+                          className="bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer border border-gray-300 dark:border-gray-700"
+                        >
+                          إلغاء التحديد
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-4 max-h-[480px] overflow-y-auto">
+                    {pendingFiltered.length === 0 ? (
                       <div className="text-center py-10 bg-gray-50/70 dark:bg-gray-900/40 rounded-xl border border-dashed border-gray-200 dark:border-gray-800 space-y-2">
                         <span className="text-3xl block">✨</span>
                         <p className="text-sm font-bold text-gray-700 dark:text-gray-300">
@@ -433,151 +617,175 @@ export default function Dashboard({
                           كافة الفواتير المرسلة من المخازن تم اعتمادها وتحديثها فوراً.
                         </p>
                       </div>
-                    );
-                  }
-                  return [...pendingFiltered].sort(compareDatesDescending).map((inv, invIdx) => (
-                    <div key={`${inv.id}-${invIdx}`} className="bg-amber-50/30 border-2 border-amber-200/80 p-5 rounded-2xl space-y-3.5 shadow-xs">
-                      <div className="flex justify-between items-center flex-wrap gap-2">
-                        <span className="font-black text-[#1e2b3c] dark:text-gray-100 text-base">
-                          📋 فاتورة مدمجة #{inv.invoiceNumber} - {inv.date}
-                        </span>
-                        <span className="bg-amber-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-2xs">
-                          {inv.total} بند مسجل
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-600 font-bold">🏷️ المستودعات المساهمة: {inv.warehouses.join(" | ")}</p>
-                      
-                      {/* Nested item list preview */}
-                      <div className="space-y-2 max-h-[220px] overflow-y-auto bg-white dark:bg-[#1f1f1f] p-3 rounded-xl border border-amber-100">
-                        {inv.items.map((item, iIndex) => (
-                          <div key={`${inv.id}-${item.id || iIndex}-${iIndex}`} className="flex flex-col text-xs border-b border-gray-50 dark:border-gray-800 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
-                            <div className="flex justify-between items-center gap-2">
-                              <span className="text-gray-700 dark:text-gray-200 flex items-center gap-2 font-bold text-sm">
-                                <span className="text-gray-400 font-normal">{iIndex+1}.</span>
-                                <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">
-                                  العدد: {item.company}
+                    ) : (
+                      (() => {
+                        const pendingComparator = pendingSortOrder === "newest" ? compareDatesDescending : compareDatesAscending;
+                        return [...pendingFiltered].sort(pendingComparator).map((inv, invIdx) => {
+                          const isSelected = selectedPendingInvoiceIds.includes(inv.id);
+                          return (
+                            <div
+                              key={`${inv.id}-${invIdx}`}
+                              className={`p-5 rounded-2xl space-y-3.5 shadow-xs transition-all ${
+                                isSelected
+                                  ? "bg-amber-100/60 dark:bg-amber-950/40 border-2 border-amber-500 ring-2 ring-amber-400/40 shadow-md"
+                                  : "bg-amber-50/30 border-2 border-amber-200/80 hover:border-amber-300"
+                              }`}
+                            >
+                              <div className="flex justify-between items-center flex-wrap gap-2">
+                                <div className="flex items-center gap-2.5">
+                                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => handleTogglePendingInvoice(inv.id)}
+                                      className="w-4 h-4 text-amber-600 rounded-md border-gray-300 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                                    />
+                                    <span className="font-black text-[#1e2b3c] dark:text-gray-100 text-base">
+                                      📋 فاتورة مدمجة #{inv.invoiceNumber} - {inv.date}
+                                    </span>
+                                  </label>
+                                </div>
+                                <span className="bg-amber-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-2xs">
+                                  {inv.total} بند مسجل
                                 </span>
-                                <span className="text-gray-900 dark:text-white font-extrabold">{item.fixedName}</span>
-                                {(item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")))) && (
-                                  <span className="bg-red-100 text-red-700 border border-red-200 text-[10px] font-black px-2 py-0.5 rounded-md">
-                                    لم يصل
-                                  </span>
-                                )}
-                              </span>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-[10px] font-bold">{item.warehouse}</span>
-                                {onDeleteMergedItem && (
-                                  <button
-                                    onClick={() => onDeleteMergedItem(inv.id, iIndex)}
-                                    className="text-red-500 hover:text-red-700 font-bold p-1.5 hover:bg-red-50 rounded cursor-pointer transition-all"
-                                    title="حذف البند"
-                                  >
-                                    🗑️
-                                  </button>
-                                )}
-                                {onEditMergedItem && (
-                                  <button
-                                    onClick={() => onEditMergedItem(inv.id, iIndex, item)}
-                                    className="text-amber-600 hover:text-amber-800 font-bold p-1.5 hover:bg-amber-50 rounded cursor-pointer transition-all"
-                                    title="تعديل البند"
-                                  >
-                                    ✏️
-                                  </button>
-                                )}
+                              </div>
+                              <p className="text-xs text-gray-600 font-bold">🏷️ المستودعات المساهمة: {inv.warehouses.join(" | ")}</p>
+                              
+                              {/* Nested item list preview */}
+                              <div className="space-y-2 max-h-[220px] overflow-y-auto bg-white dark:bg-[#1f1f1f] p-3 rounded-xl border border-amber-100">
+                                {inv.items.map((item, iIndex) => (
+                                  <div key={`${inv.id}-${item.id || iIndex}-${iIndex}`} className="flex flex-col text-xs border-b border-gray-50 dark:border-gray-800 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
+                                    <div className="flex justify-between items-center gap-2">
+                                      <span className="text-gray-700 dark:text-gray-200 flex items-center gap-2 font-bold text-sm">
+                                        <span className="text-gray-400 font-normal">{iIndex+1}.</span>
+                                        <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">
+                                          العدد: {item.company}
+                                        </span>
+                                        <span className="text-gray-900 dark:text-white font-extrabold">{item.fixedName}</span>
+                                        {(item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")))) && (
+                                          <span className="bg-red-100 text-red-700 border border-red-200 text-[10px] font-black px-2 py-0.5 rounded-md">
+                                            لم يصل
+                                          </span>
+                                        )}
+                                      </span>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-[10px] font-bold">{item.warehouse}</span>
+                                        {onDeleteMergedItem && (
+                                          <button
+                                            onClick={() => onDeleteMergedItem(inv.id, iIndex)}
+                                            className="text-red-500 hover:text-red-700 font-bold p-1.5 hover:bg-red-50 rounded cursor-pointer transition-all"
+                                            title="حذف البند"
+                                          >
+                                            🗑️
+                                          </button>
+                                        )}
+                                        {onEditMergedItem && (
+                                          <button
+                                            onClick={() => onEditMergedItem(inv.id, iIndex, item)}
+                                            className="text-amber-600 hover:text-amber-800 font-bold p-1.5 hover:bg-amber-50 rounded cursor-pointer transition-all"
+                                            title="تعديل البند"
+                                          >
+                                            ✏️
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {(() => {
+                                      const cleanNote = (item.note || "")
+                                        .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+                                        .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
+                                        .replace(/[\(（]?\s*لم تصل[^\)）]*[\)）]?/g, "")
+                                        .trim();
+                                      return cleanNote && cleanNote !== "-" && cleanNote !== "" ? (
+                                        <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
+                                          <span>📝 ملاحظة:</span>
+                                          <span className="font-medium text-gray-700 dark:text-gray-300">{cleanNote}</span>
+                                        </div>
+                                      ) : null;
+                                    })()}
+                                    {item.duplicateFrom && (
+                                      <div className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200/50 p-2 rounded-lg mt-1 font-semibold flex flex-col gap-0.5 max-w-full">
+                                        <span className="flex items-center gap-1 text-amber-800">⚠️ تنبيه تكرار البند:</span>
+                                        <span className="text-gray-600 font-normal leading-relaxed text-right">
+                                          هذا الصنف أرسل مسبقاً من <strong className="text-amber-800 font-bold">({item.duplicateFrom})</strong>.
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                <button
+                                  disabled={actionLoadingId === `approve_${inv.id}`}
+                                  onClick={async () => {
+                                    setActionLoadingId(`approve_${inv.id}`);
+                                    try {
+                                      await onApproveMerged(inv.id);
+                                    } finally {
+                                      setActionLoadingId(null);
+                                    }
+                                  }}
+                                  className={`bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black p-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 ${actionLoadingId === `approve_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
+                                >
+                                  <span>{actionLoadingId === `approve_${inv.id}` ? "⏳" : "✓"}</span>
+                                  <span>{actionLoadingId === `approve_${inv.id}` ? "جاري الاعتماد..." : "اعتماد الكل"}</span>
+                                </button>
+                                <button
+                                  onClick={() => onPrintMergedNormal(inv.id)}
+                                  className="bg-[#8b6b4d] hover:bg-[#6d4f34] active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <span>🖨️</span>
+                                  <span>طباعة</span>
+                                </button>
+                                <button
+                                  onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
+                                  className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                                  title="طباعة مصفوفة النواقص مع خيارات الفلترة"
+                                >
+                                  <span>⊞</span>
+                                  <span>طباعة مصفوفة</span>
+                                </button>
+                                <button
+                                  disabled={actionLoadingId === `reject_${inv.id}`}
+                                  onClick={async () => {
+                                    setActionLoadingId(`reject_${inv.id}`);
+                                    try {
+                                      await onRejectMerged(inv.id);
+                                    } finally {
+                                      setActionLoadingId(null);
+                                    }
+                                  }}
+                                  className={`bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${actionLoadingId === `reject_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
+                                >
+                                  <span>{actionLoadingId === `reject_${inv.id}` ? "⏳" : "✕"}</span>
+                                  <span>{actionLoadingId === `reject_${inv.id}` ? "جاري الرفض..." : "رفض الكل"}</span>
+                                </button>
+                                <button
+                                  disabled={actionLoadingId === `delete_${inv.id}`}
+                                  onClick={async () => {
+                                    setActionLoadingId(`delete_${inv.id}`);
+                                    try {
+                                      await onDeleteMerged(inv.id);
+                                    } finally {
+                                      setActionLoadingId(null);
+                                    }
+                                  }}
+                                  className={`bg-gray-500 hover:bg-gray-600 active:scale-95 text-white text-xs font-bold p-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${actionLoadingId === `delete_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
+                                >
+                                  <span>{actionLoadingId === `delete_${inv.id}` ? "⏳" : "🗑️"}</span>
+                                  <span>{actionLoadingId === `delete_${inv.id}` ? "جاري الحذف..." : "حذف الفاتورة"}</span>
+                                </button>
                               </div>
                             </div>
-                            {(() => {
-                              const cleanNote = (item.note || "")
-                                .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
-                                .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
-                                .replace(/[\(（]?\s*لم تصل[^\)）]*[\)）]?/g, "")
-                                .trim();
-                              return cleanNote && cleanNote !== "-" && cleanNote !== "" ? (
-                                <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
-                                  <span>📝 ملاحظة:</span>
-                                  <span className="font-medium text-gray-700 dark:text-gray-300">{cleanNote}</span>
-                                </div>
-                              ) : null;
-                            })()}
-                            {item.duplicateFrom && (
-                              <div className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200/50 p-2 rounded-lg mt-1 font-semibold flex flex-col gap-0.5 max-w-full">
-                                <span className="flex items-center gap-1 text-amber-800">⚠️ تنبيه تكرار البند:</span>
-                                <span className="text-gray-600 font-normal leading-relaxed text-right">
-                                  هذا الصنف أرسل مسبقاً من <strong className="text-amber-800 font-bold">({item.duplicateFrom})</strong>.
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <button
-                          disabled={actionLoadingId === `approve_${inv.id}`}
-                          onClick={async () => {
-                            setActionLoadingId(`approve_${inv.id}`);
-                            try {
-                              await onApproveMerged(inv.id);
-                            } finally {
-                              setActionLoadingId(null);
-                            }
-                          }}
-                          className={`bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black p-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 ${actionLoadingId === `approve_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
-                        >
-                          <span>{actionLoadingId === `approve_${inv.id}` ? "⏳" : "✓"}</span>
-                          <span>{actionLoadingId === `approve_${inv.id}` ? "جاري الاعتماد..." : "اعتماد الكل"}</span>
-                        </button>
-                        <button
-                          onClick={() => onPrintMergedNormal(inv.id)}
-                          className="bg-[#8b6b4d] hover:bg-[#6d4f34] active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
-                        >
-                          <span>🖨️</span>
-                          <span>طباعة</span>
-                        </button>
-                        <button
-                          onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
-                          className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
-                          title="طباعة مصفوفة النواقص مع خيارات الفلترة"
-                        >
-                          <span>⊞</span>
-                          <span>طباعة مصفوفة</span>
-                        </button>
-                        <button
-                          disabled={actionLoadingId === `reject_${inv.id}`}
-                          onClick={async () => {
-                            setActionLoadingId(`reject_${inv.id}`);
-                            try {
-                              await onRejectMerged(inv.id);
-                            } finally {
-                              setActionLoadingId(null);
-                            }
-                          }}
-                          className={`bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${actionLoadingId === `reject_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
-                        >
-                          <span>{actionLoadingId === `reject_${inv.id}` ? "⏳" : "✕"}</span>
-                          <span>{actionLoadingId === `reject_${inv.id}` ? "جاري الرفض..." : "رفض الكل"}</span>
-                        </button>
-                        <button
-                          disabled={actionLoadingId === `delete_${inv.id}`}
-                          onClick={async () => {
-                            setActionLoadingId(`delete_${inv.id}`);
-                            try {
-                              await onDeleteMerged(inv.id);
-                            } finally {
-                              setActionLoadingId(null);
-                            }
-                          }}
-                          className={`bg-gray-500 hover:bg-gray-600 active:scale-95 text-white text-xs font-bold p-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${actionLoadingId === `delete_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
-                        >
-                          <span>{actionLoadingId === `delete_${inv.id}` ? "⏳" : "🗑️"}</span>
-                          <span>{actionLoadingId === `delete_${inv.id}` ? "جاري الحذف..." : "حذف الفاتورة"}</span>
-                        </button>
-                      </div>
-                    </div>
-                  ));
-                })()}
-              </div>
-            </div>
+                          );
+                        });
+                      })()
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Sub-section B: Approved Merged Invoices */}
             {(() => {
@@ -588,6 +796,8 @@ export default function Dashboard({
                 }
                 return true;
               });
+              const isAllApprovedSelected = approvedFiltered.length > 0 && approvedFiltered.every(inv => selectedApprovedInvoiceIds.includes(inv.id));
+              const selectedApprovedCount = selectedApprovedInvoiceIds.filter(id => approvedFiltered.some(inv => inv.id === id)).length;
 
               return (
                 <div id="approved-merged-invoices-section" className="bg-white dark:bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border-2 border-emerald-300/80 space-y-4">
@@ -595,7 +805,7 @@ export default function Dashboard({
                     <div className="flex items-center gap-2.5">
                       <span className="text-2xl">✅</span>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="text-lg font-black text-emerald-800 dark:text-emerald-300">
                             الفواتير المدمجة المعتمدة (المنجزة)
                           </h3>
@@ -610,6 +820,30 @@ export default function Dashboard({
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {approvedFiltered.length > 0 && (
+                        <button
+                          onClick={() => handleToggleSelectAllApproved(approvedFiltered)}
+                          className={`flex items-center gap-1.5 text-xs font-black px-3.5 py-1.5 rounded-xl border transition-all cursor-pointer shadow-2xs active:scale-95 ${
+                            isAllApprovedSelected
+                              ? "bg-emerald-700 text-white border-emerald-700 shadow-emerald-600/20"
+                              : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-emerald-300 dark:border-emerald-700/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                          }`}
+                          title="تحديد أو إلغاء تحديد كافة الفواتير المعتمدة"
+                        >
+                          <span className="text-sm font-bold">{isAllApprovedSelected ? "☑️" : "☐"}</span>
+                          <span>{isAllApprovedSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}</span>
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => setApprovedSortOrder(prev => prev === "newest" ? "oldest" : "newest")}
+                        className="flex items-center gap-1.5 bg-emerald-100/80 hover:bg-emerald-200 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-700/60 transition-all cursor-pointer shadow-2xs active:scale-95"
+                        title="التبديل بين ترتيب الفواتير المعتمدة حسب الأحدث أو الأقدم"
+                      >
+                        <span>{approvedSortOrder === "newest" ? "⬇️" : "⬆️"}</span>
+                        <span>{approvedSortOrder === "newest" ? "الترتيب: الأحدث أولاً" : "الترتيب: الأقدم أولاً"}</span>
+                      </button>
+
                       <div className="flex items-center bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
                         <button
                           onClick={() => setApprovedFilterMode("all")}
@@ -646,6 +880,55 @@ export default function Dashboard({
                     </div>
                   </div>
 
+                  {/* Bulk Action Toolbar for Selected Approved Invoices */}
+                  {selectedApprovedCount > 0 && (
+                    <div className="bg-emerald-100/90 dark:bg-emerald-950/70 border-2 border-emerald-400 dark:border-emerald-600 p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-xs animate-fade-in">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">📌</span>
+                        <div>
+                          <span className="text-xs sm:text-sm font-black text-emerald-950 dark:text-emerald-200">
+                            تم تحديد ({selectedApprovedCount}) من إجمالي ({approvedFiltered.length}) فاتورة معتمدة
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          disabled={isBulkApprovedLoading}
+                          onClick={handleBulkDeleteSelectedApproved}
+                          className="bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-black px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <span>{isBulkApprovedLoading ? "⏳" : "🗑️"}</span>
+                          <span>{isBulkApprovedLoading ? "جاري الحذف..." : `حذف الفواتير المحددة (${selectedApprovedCount})`}</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const selectedInvoices = approvedFiltered.filter(inv => selectedApprovedInvoiceIds.includes(inv.id));
+                            const allSelectedItems = selectedInvoices.flatMap(inv => inv.items);
+                            printInvoice(
+                              allSelectedItems,
+                              `فواتير معتمدة مجمعة (${selectedInvoices.length} فاتورة)`,
+                              "جميع المخازن",
+                              currentUser.displayName || currentUser.username
+                            );
+                          }}
+                          className="bg-[#8b6b4d] hover:bg-[#6d4f34] active:scale-95 text-white text-xs font-black px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          <span>🖨️</span>
+                          <span>طباعة المحددة</span>
+                        </button>
+
+                        <button
+                          onClick={() => setSelectedApprovedInvoiceIds([])}
+                          className="bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer border border-gray-300 dark:border-gray-700"
+                        >
+                          إلغاء التحديد
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {approvedFiltered.length === 0 ? (
                     <div className="text-center py-8 bg-gray-50 dark:bg-gray-900/40 rounded-xl border border-dashed border-gray-200 dark:border-gray-800 space-y-2">
                       <span className="text-3xl block">📋</span>
@@ -660,165 +943,188 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto">
-                      {[...approvedFiltered].sort(compareDatesDescending).map((inv, invIdx) => (
-                        <div key={`${inv.id}-${invIdx}`} className="bg-emerald-50/20 border border-emerald-100 dark:border-emerald-900/40 p-4 rounded-2xl space-y-3 shadow-xs">
-                          <div className="flex justify-between items-center">
-                            <span className="font-bold text-[#1e2b3c] dark:text-gray-200">
-                              📋 فاتورة مدمجة #{inv.invoiceNumber} - {inv.date}
-                            </span>
-                            <span className="bg-emerald-600 text-white text-[10px] px-2.5 py-0.5 rounded-full font-bold">
-                              {inv.total} بند | معتمدة ✅
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">🏷️ المخازن المساهمة: {inv.warehouses.join(" | ")}</p>
-                          
-                          {/* Nested item list preview */}
-                          <div className="space-y-2 max-h-[180px] overflow-y-auto bg-white dark:bg-[#1f1f1f] p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
-                            {inv.items.map((item, iIndex) => {
-                              const canUpdateDelivery = true; // Manager has full permissions
-                              const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
-
-                              return (
-                                <div key={`${inv.id}-${item.id || iIndex}-${iIndex}`} className="flex flex-col text-xs border-b border-gray-50 dark:border-gray-800 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
-                                  <div className="flex justify-between items-center gap-2">
-                                    <span className="text-gray-700 dark:text-gray-300 flex items-center gap-2 font-bold text-sm">
-                                      <span className="text-gray-400 font-normal">{iIndex+1}.</span>
-                                      {isPartial ? (
-                                        <span className="bg-amber-100 text-amber-900 font-black px-2 py-0.5 rounded-lg text-xs border border-amber-300">
-                                          مستلم: {item.receivedQty || "0"} | متبقي: {item.remainingQty}
-                                        </span>
-                                      ) : (
-                                        <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">
-                                          العدد: {item.company}
-                                        </span>
-                                      )}
-                                      <span className="text-gray-800 dark:text-white font-extrabold">{item.fixedName}</span>
+                      {(() => {
+                        const approvedComparator = approvedSortOrder === "newest" ? compareDatesDescending : compareDatesAscending;
+                        return [...approvedFiltered].sort(approvedComparator).map((inv, invIdx) => {
+                          const isSelected = selectedApprovedInvoiceIds.includes(inv.id);
+                          return (
+                            <div
+                              key={`${inv.id}-${invIdx}`}
+                              className={`p-4 rounded-2xl space-y-3 shadow-xs transition-all ${
+                                isSelected
+                                  ? "bg-emerald-100/60 dark:bg-emerald-950/40 border-2 border-emerald-500 ring-2 ring-emerald-400/40 shadow-md"
+                                  : "bg-emerald-50/20 border border-emerald-100 dark:border-emerald-900/40 hover:border-emerald-300"
+                              }`}
+                            >
+                              <div className="flex justify-between items-center flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => handleToggleApprovedInvoice(inv.id)}
+                                      className="w-4 h-4 text-emerald-600 rounded-md border-gray-300 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                                    />
+                                    <span className="font-bold text-[#1e2b3c] dark:text-gray-200">
+                                      📋 فاتورة مدمجة #{inv.invoiceNumber} - {inv.date}
                                     </span>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      {/* Delivery Status Controllers */}
-                                      <div className="flex items-center gap-1 mr-1">
-                                        {item.deliveryStatus === "received" ? (
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-emerald-200">
-                                              🟢 تم الاستلام
+                                  </label>
+                                </div>
+                                <span className="bg-emerald-600 text-white text-[10px] px-2.5 py-0.5 rounded-full font-bold">
+                                  {inv.total} بند | معتمدة ✅
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">🏷️ المخازن المساهمة: {inv.warehouses.join(" | ")}</p>
+                              
+                              {/* Nested item list preview */}
+                              <div className="space-y-2 max-h-[180px] overflow-y-auto bg-white dark:bg-[#1f1f1f] p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
+                                {inv.items.map((item, iIndex) => {
+                                  const canUpdateDelivery = true; // Manager has full permissions
+                                  const isPartial = item.hasPartialReceipt && item.remainingQty && item.remainingQty !== "0";
+
+                                  return (
+                                    <div key={`${inv.id}-${item.id || iIndex}-${iIndex}`} className="flex flex-col text-xs border-b border-gray-50 dark:border-gray-800 pb-2 pt-1 first:pt-0 last:border-0 last:pb-0">
+                                      <div className="flex justify-between items-center gap-2">
+                                        <span className="text-gray-700 dark:text-gray-300 flex items-center gap-2 font-bold text-sm">
+                                          <span className="text-gray-400 font-normal">{iIndex+1}.</span>
+                                          {isPartial ? (
+                                            <span className="bg-amber-100 text-amber-900 font-black px-2 py-0.5 rounded-lg text-xs border border-amber-300">
+                                              مستلم: {item.receivedQty || "0"} | متبقي: {item.remainingQty}
                                             </span>
-                                            {canUpdateDelivery && (
-                                              <button
-                                                onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "delayed")}
-                                                className="text-[10px] bg-red-50 hover:bg-red-600 hover:text-white text-red-700 font-bold px-2 py-0.5 rounded-lg border border-red-200 cursor-pointer transition-all flex items-center gap-1"
-                                                title="تراجع / تحديد كـ لم يصل"
-                                              >
-                                                <span>🔄</span>
-                                                <span>لم يصل</span>
-                                              </button>
-                                            )}
-                                          </div>
-                                        ) : item.deliveryStatus === "delayed" || item.isNotArrived ? (
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="bg-red-100 text-red-800 text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-red-200">
-                                              🔴 لم يصل بعد
+                                          ) : (
+                                            <span className="bg-[#8b6b4d]/10 text-[#8b6b4d] font-black px-2.5 py-0.5 rounded-lg text-xs">
+                                              العدد: {item.company}
                                             </span>
-                                            {canUpdateDelivery && (
-                                              <button
-                                                onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "received")}
-                                                className="text-[10px] bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-800 font-bold px-2 py-0.5 rounded-lg border border-emerald-200 cursor-pointer transition-all flex items-center gap-1"
-                                                title="تأكيد الاستلام"
-                                              >
-                                                <span>✓</span>
-                                                <span>استلام</span>
-                                              </button>
-                                            )}
-                                          </div>
-                                        ) : (
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
-                                              ⏳ بانتظار التأكيد
-                                            </span>
-                                            {canUpdateDelivery && (
-                                              <div className="flex items-center gap-1">
-                                                <button
-                                                  onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "received")}
-                                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-2.5 py-1 rounded-lg text-[10px] cursor-pointer transition-all shadow-2xs flex items-center gap-1"
-                                                  title="تأكيد استلام الصنف"
-                                                >
-                                                  <span>✓</span>
-                                                  <span>استلام</span>
-                                                </button>
-                                                <button
-                                                  onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "delayed")}
-                                                  className="bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-1 rounded-lg text-[10px] cursor-pointer transition-all shadow-2xs flex items-center gap-1"
-                                                  title="تحديد الصنف كـ لم يصل"
-                                                >
-                                                  <span>✖</span>
-                                                  <span>لم يصل</span>
-                                                </button>
+                                          )}
+                                          <span className="text-gray-800 dark:text-white font-extrabold">{item.fixedName}</span>
+                                        </span>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          {/* Delivery Status Controllers */}
+                                          <div className="flex items-center gap-1 mr-1">
+                                            {item.deliveryStatus === "received" ? (
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-emerald-200">
+                                                  🟢 تم الاستلام
+                                                </span>
+                                                {canUpdateDelivery && (
+                                                  <button
+                                                    onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "delayed")}
+                                                    className="text-[10px] bg-red-50 hover:bg-red-600 hover:text-white text-red-700 font-bold px-2 py-0.5 rounded-lg border border-red-200 cursor-pointer transition-all flex items-center gap-1"
+                                                    title="تراجع / تحديد كـ لم يصل"
+                                                  >
+                                                    <span>🔄</span>
+                                                    <span>لم يصل</span>
+                                                  </button>
+                                                )}
+                                              </div>
+                                            ) : item.deliveryStatus === "delayed" || item.isNotArrived ? (
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="bg-red-100 text-red-800 text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-red-200">
+                                                  🔴 لم يصل بعد
+                                                </span>
+                                                {canUpdateDelivery && (
+                                                  <button
+                                                    onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "received")}
+                                                    className="text-[10px] bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-800 font-bold px-2 py-0.5 rounded-lg border border-emerald-200 cursor-pointer transition-all flex items-center gap-1"
+                                                    title="تأكيد الاستلام"
+                                                  >
+                                                    <span>✓</span>
+                                                    <span>استلام</span>
+                                                  </button>
+                                                )}
+                                              </div>
+                                            ) : (
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                                  ⏳ بانتظار التأكيد
+                                                </span>
+                                                {canUpdateDelivery && (
+                                                  <div className="flex items-center gap-1">
+                                                    <button
+                                                      onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "received")}
+                                                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-2.5 py-1 rounded-lg text-[10px] cursor-pointer transition-all shadow-2xs flex items-center gap-1"
+                                                      title="تأكيد استلام الصنف"
+                                                    >
+                                                      <span>✓</span>
+                                                      <span>استلام</span>
+                                                    </button>
+                                                    <button
+                                                      onClick={() => onUpdateItemDeliveryStatus?.(inv.id, item.id, "delayed")}
+                                                      className="bg-amber-500 hover:bg-amber-600 text-white font-black px-2.5 py-1 rounded-lg text-[10px] cursor-pointer transition-all shadow-2xs flex items-center gap-1"
+                                                      title="تحديد الصنف كـ لم يصل"
+                                                    >
+                                                      <span>✖</span>
+                                                      <span>لم يصل</span>
+                                                    </button>
+                                                  </div>
+                                                )}
                                               </div>
                                             )}
                                           </div>
-                                        )}
+
+                                          <span className="bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">{item.warehouse}</span>
+                                          {onDeleteMergedItem && (
+                                            <button
+                                              onClick={() => onDeleteMergedItem(inv.id, iIndex)}
+                                              className="text-red-500 hover:text-red-700 font-bold p-1 hover:bg-red-50 rounded cursor-pointer"
+                                              title="حذف البند"
+                                            >
+                                              🗑
+                                            </button>
+                                          )}
+                                          {onEditMergedItem && (
+                                            <button
+                                              onClick={() => onEditMergedItem(inv.id, iIndex, item)}
+                                              className="text-amber-600 hover:text-amber-800 font-bold p-1 hover:bg-amber-50 rounded cursor-pointer"
+                                              title="تعديل البند"
+                                            >
+                                              ✏️
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
-
-                                      <span className="bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">{item.warehouse}</span>
-                                      {onDeleteMergedItem && (
-                                        <button
-                                          onClick={() => onDeleteMergedItem(inv.id, iIndex)}
-                                          className="text-red-500 hover:text-red-700 font-bold p-1 hover:bg-red-50 rounded cursor-pointer"
-                                          title="حذف البند"
-                                        >
-                                          🗑
-                                        </button>
-                                      )}
-                                      {onEditMergedItem && (
-                                        <button
-                                          onClick={() => onEditMergedItem(inv.id, iIndex, item)}
-                                          className="text-amber-600 hover:text-amber-800 font-bold p-1 hover:bg-amber-50 rounded cursor-pointer"
-                                          title="تعديل البند"
-                                        >
-                                          ✏️
-                                        </button>
+                                      {item.note && item.note !== "-" && item.note !== "" && (
+                                        <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
+                                          <span>📝 ملاحظة:</span>
+                                          <span className="font-medium text-gray-700 dark:text-gray-300">{item.note}</span>
+                                        </div>
                                       )}
                                     </div>
-                                  </div>
-                                  {item.note && item.note !== "-" && item.note !== "" && (
-                                    <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
-                                      <span>📝 ملاحظة:</span>
-                                      <span className="font-medium text-gray-700 dark:text-gray-300">{item.note}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
+                                  );
+                                })}
+                              </div>
 
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            <button
-                              onClick={() => setAddItemModalInvoice(inv)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-sm flex items-center gap-1"
-                            >
-                              ➕ إضافة صنف
-                            </button>
-                            <button
-                              onClick={() => onPrintMergedNormal(inv.id)}
-                              className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
-                            >
-                              🖨️ طباعة
-                            </button>
-                            <button
-                              onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة معتمدة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
-                              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-xs"
-                              title="طباعة مصفوفة النواقص مع خيارات الفلترة"
-                            >
-                              ⊞ طباعة مصفوفة
-                            </button>
-                            <button
-                              onClick={() => onDeleteMerged(inv.id)}
-                              className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold p-2 px-2.5 rounded-xl transition-all cursor-pointer"
-                            >
-                              🗑️ حذف الفاتورة المعتمدة
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                <button
+                                  onClick={() => setAddItemModalInvoice(inv)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-sm flex items-center gap-1"
+                                >
+                                  ➕ إضافة صنف
+                                </button>
+                                <button
+                                  onClick={() => onPrintMergedNormal(inv.id)}
+                                  className="bg-[#8b6b4d] hover:bg-[#6d4f34] text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer"
+                                >
+                                  🖨️ طباعة
+                                </button>
+                                <button
+                                  onClick={() => setMatrixModalData({ items: inv.items, title: `فاتورة مدمجة معتمدة #${inv.invoiceNumber} (${inv.date})`, defaultWarehouse: "جميع المخازن" })}
+                                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-xs"
+                                  title="طباعة مصفوفة النواقص مع خيارات الفلترة"
+                                >
+                                  ⊞ طباعة مصفوفة
+                                </button>
+                                <button
+                                  onClick={() => onDeleteMerged(inv.id)}
+                                  className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold p-2 px-2.5 rounded-xl transition-all cursor-pointer"
+                                >
+                                  🗑️ حذف الفاتورة المعتمدة
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   )}
                 </div>

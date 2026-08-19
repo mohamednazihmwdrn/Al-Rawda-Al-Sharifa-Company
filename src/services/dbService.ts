@@ -25,6 +25,7 @@ import {
   TrashItem
 } from "../types";
 import { companyItemsMap } from "../data/constants";
+import { isSameDay } from "../utils/date";
 
 // Helper function to recursively clean "undefined" values from objects, replacing them with null, 
 // to prevent Firestore "Unsupported field value: undefined" validation errors.
@@ -515,7 +516,7 @@ export async function saveMergedInvoice(invoice: MergedInvoice) {
 
 export async function getPendingItemsFromDb(): Promise<Item[]> {
   const local = getLocal<Item[]>("items", []);
-  if (isFirestoreQuotaExhausted || (local && local.length > 0)) {
+  if (isFirestoreQuotaExhausted) {
     return local.filter(i => i.status === "waiting");
   }
   try {
@@ -525,7 +526,10 @@ export async function getPendingItemsFromDb(): Promise<Item[]> {
     snapshot.forEach((doc) => {
       itemsList.push(doc.data() as Item);
     });
-    return itemsList;
+    if (itemsList.length > 0) {
+      return itemsList;
+    }
+    return local.filter(i => i.status === "waiting");
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, "items");
     return local.filter(i => i.status === "waiting");
@@ -534,24 +538,29 @@ export async function getPendingItemsFromDb(): Promise<Item[]> {
 
 export async function getPendingMergedInvoicesFromDb(today: string): Promise<MergedInvoice[]> {
   const local = getLocal<MergedInvoice[]>("mergedInvoices", []);
-  if (isFirestoreQuotaExhausted || (local && local.length > 0)) {
-    return local.filter(m => m.status === "pending" && m.date === today);
+  if (isFirestoreQuotaExhausted) {
+    return local.filter(m => m.status === "pending" && (isSameDay(m.date, today) || !m.date));
   }
   try {
     const q = query(
       collection(db, "mergedInvoices"), 
-      where("status", "==", "pending"),
-      where("date", "==", today)
+      where("status", "==", "pending")
     );
     const snapshot = await getDocs(q);
     const invoices: MergedInvoice[] = [];
     snapshot.forEach((doc) => {
-      invoices.push(doc.data() as MergedInvoice);
+      const inv = doc.data() as MergedInvoice;
+      if (isSameDay(inv.date, today) || !inv.date) {
+        invoices.push(inv);
+      }
     });
-    return invoices;
+    if (invoices.length > 0) {
+      return invoices;
+    }
+    return local.filter(m => m.status === "pending" && (isSameDay(m.date, today) || !m.date));
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, "mergedInvoices");
-    return local.filter(m => m.status === "pending" && m.date === today);
+    return local.filter(m => m.status === "pending" && (isSameDay(m.date, today) || !m.date));
   }
 }
 
@@ -564,7 +573,7 @@ export async function getMergedInvoicesCountFromDb(): Promise<number> {
     }
   });
 
-  if (isFirestoreQuotaExhausted || local.length > 0) {
+  if (isFirestoreQuotaExhausted) {
     return maxNum;
   }
 
