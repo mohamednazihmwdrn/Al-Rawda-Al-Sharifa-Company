@@ -667,9 +667,47 @@ export default function Dashboard({
                                     </span>
                                   </label>
                                 </div>
-                                <span className="bg-amber-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-2xs">
-                                  {inv.total} بند مسجل
-                                </span>
+
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="bg-amber-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-2xs">
+                                    {inv.total} بند مسجل
+                                  </span>
+
+                                  {/* Quick Direct Approve & Reject Buttons next to invoice header */}
+                                  <button
+                                    disabled={actionLoadingId === `approve_${inv.id}`}
+                                    onClick={async () => {
+                                      setActionLoadingId(`approve_${inv.id}`);
+                                      try {
+                                        await onApproveMerged(inv.id);
+                                      } finally {
+                                        setActionLoadingId(null);
+                                      }
+                                    }}
+                                    className={`bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black px-3.5 py-1.5 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 ${actionLoadingId === `approve_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
+                                    title="اعتماد الفاتورة وترحيلها للأرشيف والتقارير"
+                                  >
+                                    <span>{actionLoadingId === `approve_${inv.id}` ? "⏳" : "✓"}</span>
+                                    <span>{actionLoadingId === `approve_${inv.id}` ? "جاري الاعتماد..." : "اعتماد"}</span>
+                                  </button>
+
+                                  <button
+                                    disabled={actionLoadingId === `reject_${inv.id}`}
+                                    onClick={async () => {
+                                      setActionLoadingId(`reject_${inv.id}`);
+                                      try {
+                                        await onRejectMerged(inv.id);
+                                      } finally {
+                                        setActionLoadingId(null);
+                                      }
+                                    }}
+                                    className={`bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-black px-3.5 py-1.5 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 ${actionLoadingId === `reject_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
+                                    title="رفض الفاتورة وإعادتها للمستودعات"
+                                  >
+                                    <span>{actionLoadingId === `reject_${inv.id}` ? "⏳" : "✕"}</span>
+                                    <span>{actionLoadingId === `reject_${inv.id}` ? "جاري الرفض..." : "رفض"}</span>
+                                  </button>
+                                </div>
                               </div>
                               <p className="text-xs text-gray-600 font-bold">🏷️ المستودعات المساهمة: {inv.warehouses.join(" | ")}</p>
                               
@@ -749,9 +787,10 @@ export default function Dashboard({
                                     }
                                   }}
                                   className={`bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black p-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 ${actionLoadingId === `approve_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
+                                  title="اعتماد الفاتورة ونقلها للأرشيف والتقارير"
                                 >
                                   <span>{actionLoadingId === `approve_${inv.id}` ? "⏳" : "✓"}</span>
-                                  <span>{actionLoadingId === `approve_${inv.id}` ? "جاري الاعتماد..." : "اعتماد الكل"}</span>
+                                  <span>{actionLoadingId === `approve_${inv.id}` ? "جاري الاعتماد..." : "اعتماد الفاتورة"}</span>
                                 </button>
                                 <button
                                   onClick={() => onPrintMergedNormal(inv.id)}
@@ -779,9 +818,10 @@ export default function Dashboard({
                                     }
                                   }}
                                   className={`bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-bold p-2.5 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${actionLoadingId === `reject_${inv.id}` ? "opacity-60 cursor-not-allowed" : ""}`}
+                                  title="رفض الفاتورة وإعادتها للمستودعات"
                                 >
                                   <span>{actionLoadingId === `reject_${inv.id}` ? "⏳" : "✕"}</span>
-                                  <span>{actionLoadingId === `reject_${inv.id}` ? "جاري الرفض..." : "رفض الكل"}</span>
+                                  <span>{actionLoadingId === `reject_${inv.id}` ? "جاري الرفض..." : "رفض الفاتورة"}</span>
                                 </button>
                                 <button
                                   disabled={actionLoadingId === `delete_${inv.id}`}
