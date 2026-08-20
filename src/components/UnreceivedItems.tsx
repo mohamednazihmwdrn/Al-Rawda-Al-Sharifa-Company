@@ -756,10 +756,10 @@ export default function UnreceivedItems({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">🔢 الكمية / العدد:</label>
+                <label className="block text-xs font-bold text-gray-700 mb-1">🔢 الكمية / العدد: <span className="text-gray-400 font-normal text-[11px]">(اختياري)</span></label>
                 <input
                   type="text"
-                  placeholder="مثال: 10، 5 كرتونة"
+                  placeholder="مثال: 10، 5 كرتونة (أو اتركه فارغاً)"
                   value={modalQty}
                   onChange={(e) => setModalQty(e.target.value)}
                   className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-[#8b6b4d]"
@@ -804,14 +804,14 @@ export default function UnreceivedItems({
               <button
                 onClick={async () => {
                   const finalWh = modalWarehouse === "custom" ? modalCustomWarehouse.trim() : modalWarehouse;
-                  if (!finalWh || !modalQty.trim() || !modalFixed.trim()) {
-                    alert("⚠️ يرجى تحديد المخزن وإدخال العدد واسم الصنف!");
+                  if (!finalWh || !modalFixed.trim()) {
+                    alert("⚠️ يرجى تحديد المخزن وإدخال اسم الصنف!");
                     return;
                   }
                   if (onAddItemToApprovedInvoice && addItemModalInvoiceId) {
                     await onAddItemToApprovedInvoice(addItemModalInvoiceId, {
                       warehouse: finalWh,
-                      company: modalQty.trim(),
+                      company: modalQty.trim() || "-",
                       fixedName: modalFixed.trim(),
                       description: modalDesc.trim() || "-",
                       note: modalNote.trim()

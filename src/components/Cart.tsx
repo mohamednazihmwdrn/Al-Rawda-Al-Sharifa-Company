@@ -262,17 +262,14 @@ export default function Cart({
       alert("⚠️ الرجاء كتابة اسم الصنف أولاً!");
       return;
     }
-    if (!quantity.trim()) {
-      alert("⚠️ الرجاء كتابة العدد / الكمية للأصناف أولاً!");
-      return;
-    }
 
     const todayStr = new Date().toLocaleDateString("ar-EG");
+    const formattedQty = quantity.trim() ? quantity.trim() : "-";
 
     // Regular add - allow any warehouse to add any item freely
     const newItem: LocalCartItem = {
       id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-      company: quantity.trim(),
+      company: formattedQty,
       fixedName: itemName.trim(),
       description: "-",
       note: "-",
@@ -294,7 +291,7 @@ export default function Cart({
     setItemName("");
     setQuantity("");
     setTimeout(() => {
-      quantityInputRef.current?.focus();
+      itemNameInputRef.current?.focus();
     }, 50);
   };
 
@@ -529,12 +526,12 @@ export default function Cart({
           <div className="flex flex-col gap-1.5">
             <label className="font-extrabold text-sm text-gray-700 flex items-center gap-1.5">
               <span>🔢 خانة أعداد للأصناف</span>
-              <span className="text-[11px] font-normal text-gray-400">(الكمية / العبوات المطلوبة)</span>
+              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">(اختياري - اكتب العدد إن وُجد)</span>
             </label>
             <input
               ref={quantityInputRef}
               type="text"
-              placeholder="اكتب العدد أو الكمية (مثال: 5، 2 بستلة، 20 علبة...)"
+              placeholder="اكتب العدد أو الكمية إن وُجدت (مثال: 5، 2 بستلة، 20 علبة... أو اتركه فارغاً)"
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               onKeyDown={(e) => {
@@ -653,7 +650,7 @@ export default function Cart({
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="bg-[#8b6b4d]/15 text-[#8b6b4d] font-black text-xs px-2.5 py-1 rounded-xl shrink-0">
-                          العدد: {item.company}
+                          {item.company && item.company !== "-" ? `العدد: ${item.company}` : "بدون عدد (غير محدد)"}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="font-extrabold text-gray-800 text-sm truncate">

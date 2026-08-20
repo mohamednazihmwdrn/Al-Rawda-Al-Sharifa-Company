@@ -326,10 +326,6 @@ export default function ArchiveComponent({
       alert("⚠️ يرجى اختيار أو إدخال اسم المخزن!");
       return;
     }
-    if (!addQty.trim()) {
-      alert("⚠️ يرجى إدخال العدد أو الكمية!");
-      return;
-    }
     if (!addFixed.trim()) {
       alert("⚠️ يرجى إدخال اسم الصنف!");
       return;
@@ -337,7 +333,7 @@ export default function ArchiveComponent({
 
     onAddItemToArchive(archiveId, {
       warehouse: selectedWh,
-      company: addQty.trim(),
+      company: addQty.trim() || "-",
       fixedName: addFixed.trim(),
       description: addDesc.trim() || "-",
       note: addNote.trim(),
@@ -733,10 +729,10 @@ export default function ArchiveComponent({
 
               {/* Quantity */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-700">🔢 العدد / الكمية <span className="text-red-500">*</span></label>
+                <label className="text-xs font-bold text-gray-700">🔢 العدد / الكمية <span className="text-gray-400 font-normal">(اختياري)</span></label>
                 <input
                   type="text"
-                  placeholder="مثال: 5"
+                  placeholder="مثال: 5 (أو اتركه فارغاً)"
                   value={addQty}
                   onChange={(e) => setAddQty(e.target.value)}
                   className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] text-sm font-semibold"

@@ -2367,13 +2367,13 @@ export default function App() {
     itemData: { warehouse: string; company: string; fixedName: string; description?: string; note?: string }
   ) => {
     const selectedWh = (itemData.warehouse || "").trim();
-    const qty = (itemData.company || "").trim();
+    const qty = (itemData.company || "").trim() || "-";
     const fixedName = (itemData.fixedName || "").trim();
     const desc = (itemData.description || "-").trim();
     const note = (itemData.note || "").trim();
 
-    if (!selectedWh || !qty || !fixedName) {
-      alert("⚠️ يرجى التأكد من تحديد المخزن، وإدخال العدد واسم الصنف!");
+    if (!selectedWh || !fixedName) {
+      alert("⚠️ يرجى التأكد من تحديد المخزن وإدخال اسم الصنف!");
       return;
     }
 

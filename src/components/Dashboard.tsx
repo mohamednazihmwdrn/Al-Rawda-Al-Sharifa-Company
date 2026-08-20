@@ -95,10 +95,6 @@ export default function Dashboard({
       alert("⚠️ يرجى اختيار أو إدخال اسم المخزن!");
       return;
     }
-    if (!modalQty.trim()) {
-      alert("⚠️ يرجى إدخال العدد أو الكمية!");
-      return;
-    }
     if (!modalFixed.trim()) {
       alert("⚠️ يرجى إدخال اسم الصنف!");
       return;
@@ -106,7 +102,7 @@ export default function Dashboard({
 
     onAddItemToApprovedInvoice?.(addItemModalInvoice.id, {
       warehouse: selectedWh,
-      company: modalQty.trim(),
+      company: modalQty.trim() || "-",
       fixedName: modalFixed.trim(),
       description: modalDesc.trim() || "-",
       note: modalNote.trim(),
@@ -1703,10 +1699,10 @@ export default function Dashboard({
 
               {/* Quantity / العدد */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-700">🔢 العدد (الكمية المطلوب إدراجها) <span className="text-red-500">*</span></label>
+                <label className="text-xs font-bold text-gray-700">🔢 العدد (الكمية المطلوب إدراجها) <span className="text-gray-400 font-normal">(اختياري)</span></label>
                 <input
                   type="text"
-                  placeholder="مثال: 10 أو 5 كرتونة..."
+                  placeholder="مثال: 10 أو 5 كرتونة... (أو اتركه فارغاً)"
                   value={modalQty}
                   onChange={(e) => setModalQty(e.target.value)}
                   className="p-2.5 border border-gray-300 rounded-xl focus:outline-[#8b6b4d] text-sm font-semibold"
