@@ -701,85 +701,11 @@ export default function App() {
     }
   };
 
-  // 10 PM daily automatic archiver function
+  // 10 PM daily automatic archiver function (Strictly non-intrusive: never auto-approves pending invoices without manager consent)
   const handleAutoArchiveDeficits = async () => {
-    if (isArchivingRef.current) return;
-
-    const today = getToday();
-    const currentHour = new Date().getHours();
-    
-    // Find pending invoices that should be archived:
-    // Either they belong to a past day, or they belong to today and the current hour is 22 (10 PM) or later.
-    const pendingMerged = mergedInvoices.filter(m => {
-      if (m.status !== "pending") return false;
-      if (processedInvoiceIdsRef.current.has(m.id)) return false;
-      const isPastDay = m.date !== today;
-      const isTodayAfter10PM = m.date === today && currentHour >= 22;
-      return isPastDay || isTodayAfter10PM;
-    });
-
-    if (pendingMerged.length === 0) return;
-
-    isArchivingRef.current = true;
-    try {
-      for (const inv of pendingMerged) {
-        if (processedInvoiceIdsRef.current.has(inv.id)) continue;
-        processedInvoiceIdsRef.current.add(inv.id);
-
-        // 1. Approve Merged Invoice
-        await saveMergedInvoice({
-          ...inv,
-          status: "auto_approved",
-          approvedAt: getFullDate()
-        });
-
-        // 2. Put into report
-        const reportId = Date.now().toString() + Math.random().toString(36).slice(2, 5);
-        await saveReport({
-          id: reportId,
-          date: today,
-          time: getNow(),
-          items: inv.items,
-          warehouse: "جميع المخازن (ترحيل تلقائي)",
-          total: inv.items.length,
-          invoiceNumber: inv.invoiceNumber,
-          approvedAt: getFullDate(),
-          autoArchived: true
-        });
-
-        // 3. Put into general archive
-        const archiveId = Date.now().toString() + Math.random().toString(36).slice(2, 5);
-        await saveArchive({
-          id: archiveId,
-          title: `فاتورة ترحيل تلقائي #${inv.invoiceNumber} - ${inv.date}`,
-          date: inv.date,
-          time: getNow(),
-          warehouse: "جميع المخازن",
-          user: "نظام الترحيل التلقائي",
-          items: inv.items,
-          total: inv.total,
-          approvedAt: getFullDate(),
-          merged: true,
-          warehouses: inv.warehouses,
-          invoiceNumber: inv.invoiceNumber,
-          unread: true,
-          autoArchived: true
-        });
-
-        // 4. Update the item's status in the database to active approved
-        for (const item of inv.items) {
-          await saveItem({
-            ...item,
-            status: "approved",
-            approvedAt: getFullDate()
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Error in automatic archiving task:", error);
-    } finally {
-      isArchivingRef.current = false;
-    }
+    // Invoices sent by warehouses MUST strictly remain pending for manager review, editing, printing, or approval
+    // No automatic status mutation from "pending" to "approved" or "auto_approved".
+    return;
   };
 
   // === Manager's Merged Invoices approvals/rejections ===
@@ -1122,6 +1048,53 @@ export default function App() {
     } catch (err) {
       console.error("Error batch deleting merged invoices:", err);
       alert("❌ حدث خطأ أثناء حذف الفواتير المحددة.");
+    }
+  };
+
+  const handleRevertToPending = async (invoiceId: string) => {
+    const invoice = mergedInvoices.find(m => m.id === invoiceId);
+    if (!invoice) return;
+
+    try {
+      const updatedItems: Item[] = (invoice.items || []).map(item => ({
+        ...item,
+        status: "waiting" as const,
+        deliveryStatus: "pending" as const,
+        approvedAt: undefined
+      }));
+
+      const pendingInvoice: MergedInvoice = {
+        ...invoice,
+        items: updatedItems,
+        status: "pending",
+        approvedAt: undefined,
+        unread: true
+      };
+
+      // 1. Optimistic update
+      setMergedInvoices(prev => prev.map(m => m.id === invoiceId ? pendingInvoice : m));
+      const updatedMap = new Map(updatedItems.map(i => [i.id, i]));
+      setItems(prev => prev.map(it => updatedMap.has(it.id) ? updatedMap.get(it.id)! : it));
+
+      // 2. Persist to Firestore / Local
+      await saveMergedInvoice(pendingInvoice);
+      await Promise.all(updatedItems.map(item => saveItem(item)));
+    } catch (err) {
+      console.error("Failed to revert invoice to pending:", err);
+      alert("❌ حدث خطأ أثناء إعادة الفاتورة لحالة الانتظار.");
+    }
+  };
+
+  const handleBatchRevertToPending = async (invoiceIds: string[]) => {
+    if (!invoiceIds || invoiceIds.length === 0) return;
+    try {
+      for (const id of invoiceIds) {
+        await handleRevertToPending(id);
+      }
+      alert(`↩️ تم إعادة عدد (${invoiceIds.length}) فواتير إلى قسم "بانتظار الاعتماد والمراجعة" بنجاح!`);
+    } catch (err) {
+      console.error("Error batch reverting invoices:", err);
+      alert("❌ حدث خطأ أثناء إعادة الفواتير المحددة.");
     }
   };
 
@@ -2638,6 +2611,8 @@ export default function App() {
             onDeleteMerged={handleDeleteMerged}
             onBatchApproveMerged={handleBatchApproveMerged}
             onBatchDeleteMerged={handleBatchDeleteMerged}
+            onRevertToPending={handleRevertToPending}
+            onBatchRevertToPending={handleBatchRevertToPending}
             onApproveWaiting={handleApproveWaitingItem}
             onRejectWaiting={handleRejectWaitingItem}
             onRestoreDeleted={handleRestoreDeletedItem}

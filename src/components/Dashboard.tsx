@@ -15,6 +15,8 @@ interface DashboardProps {
   onDeleteMerged: (indexOrId: number | string) => void;
   onBatchApproveMerged?: (invoiceIds: string[]) => Promise<void> | void;
   onBatchDeleteMerged?: (invoiceIds: string[]) => Promise<void> | void;
+  onRevertToPending?: (invoiceId: string) => Promise<void> | void;
+  onBatchRevertToPending?: (invoiceIds: string[]) => Promise<void> | void;
   onApproveWaiting: (id: string) => void;
   onRejectWaiting: (id: string) => void;
   onRestoreDeleted: (id: string) => void;
@@ -41,6 +43,8 @@ export default function Dashboard({
   onDeleteMerged,
   onBatchApproveMerged,
   onBatchDeleteMerged,
+  onRevertToPending,
+  onBatchRevertToPending,
   onApproveWaiting,
   onRejectWaiting,
   onRestoreDeleted,
@@ -213,6 +217,28 @@ export default function Dashboard({
     } catch (err) {
       console.error("Bulk delete approved error:", err);
       alert("❌ حدث خطأ أثناء الحذف المجمع للفواتير المعتمدة.");
+    } finally {
+      setIsBulkApprovedLoading(false);
+    }
+  };
+
+  const handleBulkRevertSelectedApproved = async () => {
+    if (selectedApprovedInvoiceIds.length === 0) return;
+    if (!confirm(`↩️ هل أنت متأكد من إعادة عدد (${selectedApprovedInvoiceIds.length}) فاتورة معتمدة محددة إلى قسم "بانتظار الاعتماد والمراجعة"؟`)) return;
+
+    setIsBulkApprovedLoading(true);
+    try {
+      if (onBatchRevertToPending) {
+        await onBatchRevertToPending(selectedApprovedInvoiceIds);
+      } else if (onRevertToPending) {
+        for (const id of selectedApprovedInvoiceIds) {
+          await onRevertToPending(id);
+        }
+      }
+      setSelectedApprovedInvoiceIds([]);
+    } catch (err) {
+      console.error("Bulk revert approved error:", err);
+      alert("❌ حدث خطأ أثناء إعادة الفواتير إلى بانتظار الاعتماد.");
     } finally {
       setIsBulkApprovedLoading(false);
     }
@@ -893,6 +919,18 @@ export default function Dashboard({
                       </div>
 
                       <div className="flex items-center gap-2 flex-wrap">
+                        {(onBatchRevertToPending || onRevertToPending) && (
+                          <button
+                            disabled={isBulkApprovedLoading}
+                            onClick={handleBulkRevertSelectedApproved}
+                            className="bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-black px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                            title="إعادة الفواتير المحددة إلى قسم بانتظار الاعتماد والمراجعة"
+                          >
+                            <span>{isBulkApprovedLoading ? "⏳" : "↩️"}</span>
+                            <span>{isBulkApprovedLoading ? "جاري الإعادة..." : `إعادة لانتظار الاعتماد (${selectedApprovedCount})`}</span>
+                          </button>
+                        )}
+
                         <button
                           disabled={isBulkApprovedLoading}
                           onClick={handleBulkDeleteSelectedApproved}
@@ -1095,6 +1133,20 @@ export default function Dashboard({
                               </div>
 
                               <div className="flex flex-wrap gap-2 pt-1">
+                                {onRevertToPending && (
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`↩️ هل تريد إعادة الفاتورة #${inv.invoiceNumber} إلى قسم "بانتظار الاعتماد والمراجعة" لتتمكن من مراجعتها أو تعديلها؟`)) {
+                                        onRevertToPending(inv.id);
+                                      }
+                                    }}
+                                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                                    title="إعادة الفاتورة لحالة الانتظار لتتمكن من مراجعتها أو حذفها أو اعتمادها يدوياً"
+                                  >
+                                    <span>↩️</span>
+                                    <span>إعادة لانتظار الاعتماد</span>
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => setAddItemModalInvoice(inv)}
                                   className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold p-2 px-3 rounded-xl transition-all cursor-pointer shadow-sm flex items-center gap-1"
