@@ -64,6 +64,166 @@ export function getFooterHtml(type = "البيان"): string {
   `;
 }
 
+/**
+ * Universal sticky top bar for force-printing, retrying, and printer driver selection.
+ * Automatically hidden during actual print output via @media print.
+ */
+export function getUniversalPrintHeaderBar(docTitle = "مستند الطباعة"): string {
+  return `
+    <div class="no-print-universal-bar" style="background:#0f172a; color:#ffffff; padding:10px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:999999; border-bottom:3px solid #8b6b4d; box-shadow:0 4px 14px rgba(0,0,0,0.25); font-family:'Cairo', 'Segoe UI', Tahoma, sans-serif; direction:rtl;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:22px; line-height:1;">🖨️</span>
+        <div>
+          <div style="font-weight:900; font-size:14px; color:#f8fafc; display:flex; align-items:center; gap:6px;">
+            <span>أمر الطباعة المباشر لجميع الطابعات</span>
+            <span style="background:#15803d; color:#ffffff; font-size:10px; padding:2px 8px; border-radius:999px; font-weight:bold;">جاهز 100%</span>
+          </div>
+          <div style="font-size:11.5px; color:#94a3b8; margin-top:2px;">
+            اختر طابعتك (A4، حراري، إبسون، كانون، HP، زيبرا، أو PDF) من مربع حوار الطباعة.
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <button type="button" onclick="triggerUniversalForcePrint()" style="background:#16a34a; hover:background:#15803d; color:#ffffff; border:none; padding:8px 18px; border-radius:10px; font-weight:900; font-size:13px; cursor:pointer; box-shadow:0 3px 8px rgba(22,163,74,0.4); display:flex; align-items:center; gap:6px; transition:all 0.2s;">
+          <span>🖨️</span>
+          <span>إرسال أمر الطباعة الآن (إجباري)</span>
+        </button>
+        <button type="button" onclick="triggerUniversalForcePrint()" style="background:#2563eb; color:#ffffff; border:none; padding:8px 14px; border-radius:10px; font-weight:bold; font-size:12px; cursor:pointer; transition:all 0.2s;">
+          <span>🔄</span>
+          <span>إعادة المحاولة للطابعة</span>
+        </button>
+        <button type="button" onclick="window.close()" style="background:#334155; color:#ffffff; border:none; padding:8px 14px; border-radius:10px; font-weight:bold; font-size:12px; cursor:pointer; transition:all 0.2s;">
+          ✕ إغلاق النافذة
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Universal print invocation script that triggers print on multiple events
+ * to bypass browser timing stalls and ensure communication with printer spooler.
+ */
+export function getUniversalPrintScript(): string {
+  return `
+    <script>
+      function triggerUniversalForcePrint() {
+        try {
+          window.focus();
+          window.print();
+        } catch (err) {
+          console.warn("Print execution note:", err);
+        }
+      }
+
+      // Multi-event triggers to guarantee execution on every browser and device
+      if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(triggerUniversalForcePrint, 250);
+      } else {
+        window.addEventListener('DOMContentLoaded', function() { setTimeout(triggerUniversalForcePrint, 200); });
+        window.addEventListener('load', function() { setTimeout(triggerUniversalForcePrint, 350); });
+      }
+
+      // Fallback safety triggers
+      setTimeout(triggerUniversalForcePrint, 700);
+      setTimeout(triggerUniversalForcePrint, 1400);
+    </script>
+  `;
+}
+
+/**
+ * Universal bulletproof print executor:
+ * 1. Tries popup window first.
+ * 2. If popup is blocked, uses hidden IFrame fallback inside current DOM (100% popup-blocker proof).
+ */
+export function executeUniversalPrint(htmlContent: string, title = "مستند الطباعة") {
+  let fullHtml = htmlContent;
+  if (!fullHtml.includes("<!DOCTYPE html>") && !fullHtml.includes("<!doctype html>")) {
+    fullHtml = "<!DOCTYPE html>\n" + fullHtml;
+  }
+
+  // Attempt Method 1: Popup Window
+  let printWindow: Window | null = null;
+  try {
+    printWindow = window.open("", "_blank", "width=1200,height=900,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes");
+  } catch (err) {
+    console.warn("Popup blocked or failed, using iframe fallback:", err);
+  }
+
+  if (printWindow && !printWindow.closed) {
+    try {
+      printWindow.document.open();
+      printWindow.document.write(fullHtml);
+      printWindow.document.close();
+      printWindow.focus();
+
+      // Parent-side backup trigger
+      setTimeout(() => {
+        try {
+          if (printWindow && !printWindow.closed) {
+            printWindow.focus();
+            printWindow.print();
+          }
+        } catch (e) {
+          console.warn("Parent print trigger fallback:", e);
+        }
+      }, 400);
+
+      return;
+    } catch (err) {
+      console.warn("Writing to popup window failed, switching to iframe fallback:", err);
+    }
+  }
+
+  // Attempt Method 2: Hidden Iframe Injection (100% popup-blocker proof & mobile/kiosk friendly)
+  try {
+    let iframe = document.getElementById("universal-print-frame") as HTMLIFrameElement;
+    if (iframe) {
+      iframe.remove();
+    }
+    iframe = document.createElement("iframe");
+    iframe.id = "universal-print-frame";
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0px";
+    iframe.style.height = "0px";
+    iframe.style.border = "none";
+    iframe.style.visibility = "hidden";
+    iframe.style.zIndex = "-99999";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (doc && iframe.contentWindow) {
+      doc.open();
+      doc.write(fullHtml);
+      doc.close();
+
+      const triggerIframePrint = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (err) {
+          console.error("Iframe print error:", err);
+        }
+      };
+
+      if (iframe.contentWindow.document.readyState === "complete") {
+        setTimeout(triggerIframePrint, 250);
+      } else {
+        iframe.onload = () => {
+          setTimeout(triggerIframePrint, 250);
+        };
+      }
+    }
+  } catch (err) {
+    console.error("Universal print fallback error:", err);
+    try {
+      window.print();
+    } catch (e) {}
+  }
+}
+
 export function printInvoice(items: Item[], title = "فاتورة النواقص", warehouseName: string | null = null, currentUserDisplay = "غير معروف") {
   if (!items || items.length === 0) {
     alert("⚠️ لا توجد بنود للطباعة");
@@ -500,6 +660,7 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                   .header { border-bottom: 2.5px solid #000000 !important; }
                   .footer { border-top: 2.5px solid #000000 !important; }
                   thead { display: table-header-group !important; }
+                  .no-print-universal-bar { display: none !important; }
                   @page { 
                       size: A4 portrait !important; 
                       margin: ${normalPageMargin} !important; 
@@ -509,6 +670,8 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
           </style>
       </head>
       <body>
+          ${getUniversalPrintHeaderBar(title)}
+
           <div class="invoice-print">
               <div class="header">
                   <div class="right">
@@ -541,19 +704,12 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                   <p style="margin: 2px 0;"><span class="copyright">حقوق الملكية: Mohamed Nazih | 📱 01029190615</span></p>
               </div>
           </div>
-          <script>
-              window.onload = function() { window.print(); }
-          </script>
+          ${getUniversalPrintScript()}
       </body>
       </html>
   `;
 
-  const win = window.open("", "_blank", "width=1200,height=900");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-  }
+  executeUniversalPrint(html, title);
 }
 
 export function printMatrix(
@@ -1419,18 +1575,28 @@ export function printMatrix(
                   document.getElementById('columnsContainer').innerHTML = colsHtml;
               }
 
-              window.onload = function() { window.print(); }
+              function triggerMatrixPrint() {
+                  try {
+                      window.focus();
+                      window.print();
+                  } catch (e) {
+                      console.warn("Matrix print trigger note:", e);
+                  }
+              }
+
+              if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                  setTimeout(triggerMatrixPrint, 250);
+              } else {
+                  window.addEventListener('DOMContentLoaded', function() { setTimeout(triggerMatrixPrint, 200); });
+                  window.addEventListener('load', function() { setTimeout(triggerMatrixPrint, 350); });
+              }
+              setTimeout(triggerMatrixPrint, 800);
           </script>
       </body>
       </html>
   `;
 
-  const win = window.open("", "_blank", "width=1200,height=900");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-  }
+  executeUniversalPrint(html, title);
 }
 
 
@@ -1618,19 +1784,12 @@ export function printQuotationReceipt(quotation: Quotation, currentUserDisplay =
                   <p><span class="copyright">حقوق الملكية: Mohamed Nazih | 📱 01029190615</span></p>
               </div>
           </div>
-          <script>
-              window.onload = function() { setTimeout(function() { window.print(); }, 500); }
-          <\/script>
+          ${getUniversalPrintScript()}
       </body>
       </html>
   `;
 
-  const win = window.open("", "_blank", "width=900,height=700");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-  }
+  executeUniversalPrint(html, "فاتورة عرض سعر");
 }
 
 export function printDailyReceiptReport(
@@ -1706,14 +1865,14 @@ export function printDailyReceiptReport(
         body {
           font-family: 'Cairo', sans-serif;
           margin: 0;
-          padding: 20px;
+          padding: 0;
           background-color: #f9fafb;
           color: #1f2937;
           direction: rtl;
         }
         .report-container {
           max-width: 1000px;
-          margin: 0 auto;
+          margin: 20px auto;
           background-color: #ffffff;
           padding: 24px;
           border-radius: 12px;
@@ -1808,18 +1967,17 @@ export function printDailyReceiptReport(
 
         @media print {
           body { background-color: white; padding: 0; }
-          .report-container { box-shadow: none; padding: 0; }
-          .no-print-bar { display: none !important; }
-          @page { size: A4 portrait; margin: 15mm; }
+          .report-container { box-shadow: none; padding: 0; margin: 0; }
+          .no-print-bar, .no-print-universal-bar { display: none !important; }
+          @page { size: A4 portrait; margin: 10mm; }
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
+          color-adjust: exact !important;
         }
       </style>
     </head>
     <body>
-      <div class="no-print-bar">
-        <button class="btn-print" onclick="window.print()">🖨️ طباعة التقرير أو الحفظ كـ PDF</button>
-      </div>
+      ${getUniversalPrintHeaderBar(title)}
 
       <div class="report-container">
         <div class="header-bar">
@@ -1883,19 +2041,10 @@ export function printDailyReceiptReport(
         </div>
       </div>
 
-      <script>
-        window.onload = function() {
-          setTimeout(function() { window.print(); }, 500);
-        };
-      <\/script>
+      ${getUniversalPrintScript()}
     </body>
     </html>
   `;
 
-  const win = window.open("", "_blank", "width=1050,height=800");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-  }
+  executeUniversalPrint(html, title);
 }

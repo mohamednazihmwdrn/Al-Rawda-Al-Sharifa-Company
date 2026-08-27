@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { User } from "../types";
+import { executeUniversalPrint, getUniversalPrintHeaderBar, getUniversalPrintScript } from "../utils/print";
 
 interface SmartPrintProps {
   currentUser: User;
@@ -61,13 +62,6 @@ export default function SmartPrint({ currentUser }: SmartPrintProps) {
   };
 
   const handlePrint = () => {
-    // Generate an isolated clean printable iframe or window
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      alert("⚠️ يرجى السماح بالنوافذ المنبثقة لكي تتمكن من الطباعة.");
-      return;
-    }
-
     const directionAttr = isRtl ? "rtl" : "ltr";
     const textAlignClass = textAlign === "right" ? "right" : textAlign === "center" ? "center" : textAlign === "left" ? "left" : "justify";
     
@@ -91,11 +85,14 @@ export default function SmartPrint({ currentUser }: SmartPrintProps) {
     const actualFontSize = isCompact50Lines ? 13 : fontSize;
     const actualLineHeight = isCompact50Lines ? 1.3 : lineHeight;
     const actualPadding = isCompact50Lines ? 15 : padding;
+    const titleToUse = printTitle || 'طباعة نص حر - الروضة الشريفة';
 
-    printWindow.document.write(`
-      <html>
+    const html = `
+      <!DOCTYPE html>
+      <html lang="ar" dir="${directionAttr}">
         <head>
-          <title>${printTitle || 'طباعة نص حر - الروضة الشريفة'}</title>
+          <meta charset="UTF-8">
+          <title>${titleToUse}</title>
           <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
             @page {
@@ -154,25 +151,27 @@ export default function SmartPrint({ currentUser }: SmartPrintProps) {
               left: 10mm;
               right: 10mm;
             }
+            @media print {
+              .no-print-universal-bar { display: none !important; }
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
           </style>
         </head>
         <body>
+          ${getUniversalPrintHeaderBar(titleToUse)}
           <div class="paper-content">
             <div class="print-header">${headerText}</div>
             ${printTitle ? `<div class="title-section">${printTitle}</div>` : ""}
             <div>${text || "الرجاء كتابة نص هنا للطباعة..."}</div>
             <div class="print-footer">${footerText}</div>
           </div>
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(function() { window.close(); }, 500);
-            };
-          </script>
+          ${getUniversalPrintScript()}
         </body>
       </html>
-    `);
-    printWindow.document.close();
+    `;
+
+    executeUniversalPrint(html, titleToUse);
   };
 
   return (
