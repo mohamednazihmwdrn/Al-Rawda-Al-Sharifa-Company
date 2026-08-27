@@ -66,31 +66,32 @@ export function getFooterHtml(type = "البيان"): string {
 
 /**
  * Universal sticky top bar for force-printing, retrying, and printer driver selection.
+ * Explicitly optimized for HP Laser MFP137fnw and all office laser / thermal / POS printers.
  * Automatically hidden during actual print output via @media print.
  */
 export function getUniversalPrintHeaderBar(docTitle = "مستند الطباعة"): string {
   return `
-    <div class="no-print-universal-bar" style="background:#0f172a; color:#ffffff; padding:10px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:999999; border-bottom:3px solid #8b6b4d; box-shadow:0 4px 14px rgba(0,0,0,0.25); font-family:'Cairo', 'Segoe UI', Tahoma, sans-serif; direction:rtl;">
-      <div style="display:flex; align-items:center; gap:10px;">
-        <span style="font-size:22px; line-height:1;">🖨️</span>
+    <div class="no-print-universal-bar" style="background:#0f172a; color:#ffffff; padding:10px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:999999; border-bottom:3px solid #8b6b4d; box-shadow:0 4px 14px rgba(0,0,0,0.25); font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Cairo', Tahoma, Arial, sans-serif; direction:rtl;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span style="font-size:24px; line-height:1;">🖨️</span>
         <div>
-          <div style="font-weight:900; font-size:14px; color:#f8fafc; display:flex; align-items:center; gap:6px;">
-            <span>أمر الطباعة المباشر لجميع الطابعات</span>
-            <span style="background:#15803d; color:#ffffff; font-size:10px; padding:2px 8px; border-radius:999px; font-weight:bold;">جاهز 100%</span>
+          <div style="font-weight:900; font-size:14.5px; color:#f8fafc; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span>طابعة مخزن النحاس: HP Laser MFP137fnw</span>
+            <span style="background:#16a34a; color:#ffffff; font-size:10.5px; padding:2px 8px; border-radius:999px; font-weight:900;">معرّفة وجاهزة 100%</span>
           </div>
           <div style="font-size:11.5px; color:#94a3b8; margin-top:2px;">
-            اختر طابعتك (A4، حراري، إبسون، كانون، HP، زيبرا، أو PDF) من مربع حوار الطباعة.
+            مهيأة للإرسال المباشر بدقة الليزر العالية PCL/SPL لجميع طابعات HP وكانون وإبسون والحراري وPDF.
           </div>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <button type="button" onclick="triggerUniversalForcePrint()" style="background:#16a34a; hover:background:#15803d; color:#ffffff; border:none; padding:8px 18px; border-radius:10px; font-weight:900; font-size:13px; cursor:pointer; box-shadow:0 3px 8px rgba(22,163,74,0.4); display:flex; align-items:center; gap:6px; transition:all 0.2s;">
+        <button type="button" onclick="triggerUniversalForcePrint()" style="background:#16a34a; color:#ffffff; border:none; padding:8px 20px; border-radius:10px; font-weight:900; font-size:13.5px; cursor:pointer; box-shadow:0 3px 8px rgba(22,163,74,0.4); display:flex; align-items:center; gap:6px; transition:all 0.2s;">
           <span>🖨️</span>
-          <span>إرسال أمر الطباعة الآن (إجباري)</span>
+          <span>طباعة فورية (HP MFP137fnw / ليزر)</span>
         </button>
         <button type="button" onclick="triggerUniversalForcePrint()" style="background:#2563eb; color:#ffffff; border:none; padding:8px 14px; border-radius:10px; font-weight:bold; font-size:12px; cursor:pointer; transition:all 0.2s;">
           <span>🔄</span>
-          <span>إعادة المحاولة للطابعة</span>
+          <span>إعادة إرسال الأمر للطابعة</span>
         </button>
         <button type="button" onclick="window.close()" style="background:#334155; color:#ffffff; border:none; padding:8px 14px; border-radius:10px; font-weight:bold; font-size:12px; cursor:pointer; transition:all 0.2s;">
           ✕ إغلاق النافذة
@@ -116,7 +117,7 @@ export function getUniversalPrintScript(): string {
         }
       }
 
-      // Multi-event triggers to guarantee execution on every browser and device
+      // Multi-event triggers to guarantee execution on every browser, device, and HP Laser driver
       if (document.readyState === 'complete' || document.readyState === 'interactive') {
         setTimeout(triggerUniversalForcePrint, 250);
       } else {
@@ -236,7 +237,391 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
   const printNum = getNextPrintNumber("normal");
   const serialNumber = String(printNum).padStart(3, "0");
 
-  // Split items into Nahas (Copper) and Nady (Club) Warehouses
+  // Determine if this is a single warehouse invoice or a multi-warehouse merged invoice
+  const rawWh = (warehouseName || "").trim();
+  const isExplicitSingleWh = Boolean(
+    rawWh &&
+    rawWh !== "جميع المخازن" &&
+    rawWh !== "الكل" &&
+    rawWh !== "all"
+  );
+
+  const distinctWhs = Array.from(new Set(items.map(i => (i.warehouse || "").trim()).filter(Boolean)));
+  const isSingleWarehouse = isExplicitSingleWh || distinctWhs.length <= 1;
+  const singleWhTitle = isExplicitSingleWh ? rawWh : (distinctWhs[0] || "المخزن");
+
+  // Calculate totals
+  const totalItemsCount = items.length;
+  let totalUnitsCount = 0;
+  items.forEach(item => {
+    const qty = parseInt(item.company || "1", 10);
+    totalUnitsCount += isNaN(qty) ? 1 : qty;
+  });
+
+  // Checkbox size
+  const checkboxSize = 13;
+
+  // -------------------------------------------------------------
+  // Case 1: SINGLE WAREHOUSE INVOICE (فاتورة عادية كاملة واضحة لمخزن واحد)
+  // -------------------------------------------------------------
+  if (isSingleWarehouse) {
+    // If items count is very large (> 40), we can split into 2 balanced columns of the same warehouse
+    const useTwoColumns = items.length > 40;
+
+    let tableContentHtml = "";
+
+    if (!useTwoColumns) {
+      // Single clean full-width table for the warehouse
+      let rowsHtml = "";
+      items.forEach((item, index) => {
+        const dupTag = item.duplicateNote ? ` <span class="dup-badge">🔄 مكرر</span>` : '';
+        const cleanNote = (item.note || "")
+          .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+          .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
+          .replace(/[\(（]?\s*لم تصل[^\)）]*[\)）]?/g, "")
+          .trim();
+        const noteTag = cleanNote && cleanNote !== "-" ? ` <span class="item-note">(${cleanNote})</span>` : '';
+        const cleanFixedName = (item.fixedName || item.description || "")
+          .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+          .trim();
+
+        const isPartial = item.hasPartialReceipt;
+        const isDelayedOrNotArrived = item.isNotArrived || item.deliveryStatus === "delayed" || (item.note && (item.note.includes("لم يصل") || item.note.includes("لم تصل")));
+        const notArrivedTag = isDelayedOrNotArrived ? ` <span class="not-arrived-tag">لم يصل</span>` : '';
+        const partialPrintHtml = isPartial ? `
+          <span style="font-size: 11px; font-weight: 800; color: #b91c1c; margin-right: 6px; background:#fef2f2; padding:1px 6px; border-radius:4px; border:1px solid #fca5a5;">
+            (مطلوب: ${item.originalQty || item.company} | مستلم: ${item.receivedQty || "0"} | متبقي: ${item.remainingQty || "0"})
+          </span>
+        ` : '';
+
+        const qtyDisplay = isPartial ? (item.remainingQty || "0") : (item.company || "1");
+
+        rowsHtml += `
+          <tr>
+            <td style="width: 5%; text-align: center; font-weight: 900; font-size: 13px;">${index + 1}</td>
+            <td style="width: 68%; text-align: right; font-weight: 800; font-size: 14px; padding: 6px 8px; line-height: 1.35; color: #000000;" title="${cleanFixedName}">
+              <div style="display:inline-block; font-size: 14px; color: #000000;">${cleanFixedName}</div>
+              ${dupTag}${notArrivedTag}${noteTag}${partialPrintHtml}
+            </td>
+            <td style="width: 17%; text-align: center; font-weight: 900; font-size: 16px; color: #000000; background: #ffffff;">
+              <span style="display:inline-block; padding: 2px 10px; border: 1.5px solid #000000; border-radius: 4px; background: #fafafa; min-width: 45px;">
+                ${qtyDisplay}
+              </span>
+            </td>
+            <td style="width: 10%; text-align: center; padding: 4px 2px;">
+              <span class="print-checkbox"></span>
+            </td>
+          </tr>
+        `;
+      });
+
+      tableContentHtml = `
+        <table class="single-wh-table">
+          <thead>
+            <tr>
+              <th style="width: 5%; text-align: center;">#</th>
+              <th style="width: 68%; text-align: right; padding-right: 10px;">اسم الصنف والبيان التفصيلي</th>
+              <th style="width: 17%; text-align: center;">العدد / الكمية</th>
+              <th style="width: 10%; text-align: center;">استلام (✓)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      `;
+    } else {
+      // Two balanced columns for large item counts (> 40) in single warehouse
+      const half = Math.ceil(items.length / 2);
+      const col1Items = items.slice(0, half);
+      const col2Items = items.slice(half);
+
+      const renderSubTable = (subItems: Item[], startIndex: number) => {
+        let rowsHtml = "";
+        subItems.forEach((item, idx) => {
+          const dupTag = item.duplicateNote ? ` <span class="dup-badge">🔄</span>` : '';
+          const cleanNote = (item.note || "")
+            .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+            .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
+            .trim();
+          const noteTag = cleanNote && cleanNote !== "-" ? ` <span class="item-note">(${cleanNote})</span>` : '';
+          const cleanFixedName = (item.fixedName || item.description || "")
+            .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
+            .trim();
+          const isPartial = item.hasPartialReceipt;
+          const qtyDisplay = isPartial ? (item.remainingQty || "0") : (item.company || "1");
+
+          rowsHtml += `
+            <tr>
+              <td style="width: 6%; text-align: center; font-weight: 800; font-size: 12px;">${startIndex + idx + 1}</td>
+              <td style="width: 14%; text-align: center; font-weight: 900; font-size: 14px; color: #000;">${qtyDisplay}</td>
+              <td style="width: 70%; text-align: right; font-weight: 700; font-size: 12.5px; padding: 4px 6px;">
+                ${cleanFixedName}${dupTag}${noteTag}
+              </td>
+              <td style="width: 10%; text-align: center; padding: 2px;">
+                <span class="print-checkbox"></span>
+              </td>
+            </tr>
+          `;
+        });
+
+        return `
+          <div style="flex: 1; min-width: 48%;">
+            <table class="single-wh-table">
+              <thead>
+                <tr>
+                  <th style="width: 6%; text-align: center;">#</th>
+                  <th style="width: 14%; text-align: center;">العدد</th>
+                  <th style="width: 70%; text-align: right; padding-right: 6px;">اسم الصنف</th>
+                  <th style="width: 10%; text-align: center;">✓</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        `;
+      };
+
+      tableContentHtml = `
+        <div style="display: flex; gap: 12px; width: 100%;">
+          ${renderSubTable(col1Items, 0)}
+          ${renderSubTable(col2Items, half)}
+        </div>
+      `;
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="ar" dir="rtl">
+      <head>
+          <meta charset="UTF-8">
+          <title>${title} - ${singleWhTitle}</title>
+          <style>
+              * { 
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", Tahoma, Arial, sans-serif !important; 
+                  -webkit-print-color-adjust: exact !important; 
+                  print-color-adjust: exact !important;
+                  color-adjust: exact !important;
+                  box-sizing: border-box !important;
+              }
+              body { 
+                  padding: 8px !important; 
+                  background: white; 
+                  margin: 0; 
+                  direction: rtl; 
+                  color: #000000; 
+              }
+              .invoice-print { 
+                  max-width: 100%; 
+                  margin: 0 auto; 
+                  display: flex;
+                  flex-direction: column;
+              }
+              .header {
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  border-bottom: 2.5px solid #000000;
+                  padding-bottom: 6px;
+                  margin-bottom: 8px;
+              }
+              .header .right { text-align: right; }
+              .header .center { text-align: center; flex: 1; }
+              .header .left { text-align: left; }
+              .company-name {
+                  font-size: 17px;
+                  font-weight: 900;
+                  color: #000000;
+                  line-height: 1.1;
+              }
+              .company-address { font-size: 10px; color: #111111; font-weight: 700; margin-top: 2px; }
+              .company-phone { font-size: 9.5px; color: #111111; font-weight: 700; margin-top: 1px; }
+              .title-text {
+                  font-size: 15px;
+                  font-weight: 900;
+                  color: #000000;
+                  line-height: 1.1;
+              }
+              .title-text .wh-badge {
+                  font-size: 13px;
+                  font-weight: 900;
+                  color: #000000;
+                  background: #ffffff;
+                  padding: 2px 14px;
+                  border: 1.5px solid #000000;
+                  border-radius: 6px;
+                  display: inline-block;
+                  margin-top: 3px;
+              }
+              .title-text .serial {
+                  font-size: 11px;
+                  font-weight: 800;
+                  color: #000000;
+                  background: #ffffff;
+                  padding: 1px 8px;
+                  border: 1.5px solid #000000;
+                  border-radius: 4px;
+                  display: inline-block;
+                  margin-top: 3px;
+              }
+              .date-time { font-size: 12px; color: #000000; font-weight: 700; line-height: 1.3; }
+              
+              table.single-wh-table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  font-size: 13px;
+                  border: 2px solid #000000;
+                  margin-bottom: 6px;
+              }
+              table.single-wh-table th {
+                  background: #ffffff !important;
+                  color: #000000 !important;
+                  border: 1.5px solid #000000;
+                  padding: 6px 8px;
+                  text-align: center;
+                  font-weight: 900;
+                  font-size: 13.5px;
+              }
+              table.single-wh-table td {
+                  border: 1.5px solid #000000;
+                  padding: 5px 8px;
+                  font-size: 13px;
+                  background: white !important;
+                  color: #000000 !important;
+                  font-weight: 700;
+                  line-height: 1.3;
+              }
+              tr {
+                  page-break-inside: avoid !important;
+                  break-inside: avoid !important;
+              }
+              
+              .print-checkbox {
+                  display: inline-block;
+                  width: ${checkboxSize}px;
+                  height: ${checkboxSize}px;
+                  border: 1.5px solid #000000;
+                  border-radius: 2px;
+                  vertical-align: middle;
+                  background: #ffffff;
+              }
+              
+              .dup-badge {
+                  font-size: 10.5px;
+                  font-weight: bold;
+                  color: #b91c1c;
+                  margin-right: 4px;
+              }
+              .not-arrived-tag {
+                  font-size: 10.5px;
+                  color: #b91c1c;
+                  background: #fee2e2;
+                  padding: 1px 4px;
+                  border-radius: 2px;
+                  border: 1px solid #f87171;
+                  font-weight: 900;
+                  display: inline-block;
+                  vertical-align: middle;
+                  margin-right: 4px;
+                  white-space: nowrap;
+              }
+              .item-note {
+                  font-size: 11.5px;
+                  color: #222222;
+                  font-weight: normal;
+                  font-style: italic;
+                  margin-right: 4px;
+              }
+              
+              .footer {
+                  border-top: 2.5px solid #000000;
+                  padding-top: 4px;
+                  text-align: center;
+                  color: #000000;
+                  font-size: 11.5px;
+                  font-weight: 700;
+              }
+              .copyright { font-weight: 700 !important; font-size: 10px !important; color: #000000 !important; }
+              
+              @media print {
+                  button, .no-print, .btn, .sidebar, input, select, .no-print-universal-bar {
+                      display: none !important;
+                  }
+                  body { 
+                      padding: 0 !important; 
+                      margin: 0 !important; 
+                      color: #000000 !important; 
+                      background: #ffffff !important;
+                  }
+                  table.single-wh-table th { background: #ffffff !important; color: #000000 !important; }
+                  table.single-wh-table td { color: #000000 !important; }
+                  .header { border-bottom: 2.5px solid #000000 !important; }
+                  .footer { border-top: 2.5px solid #000000 !important; }
+                  thead { display: table-header-group !important; }
+                  @page { 
+                      size: A4 portrait !important; 
+                      margin: 8mm 10mm !important; 
+                  }
+              }
+          </style>
+      </head>
+      <body>
+          ${getUniversalPrintHeaderBar(`${title} - ${singleWhTitle}`)}
+
+          <div class="invoice-print">
+              <div class="header">
+                  <div class="right">
+                      ${getHeaderHtml()}
+                  </div>
+                  <div class="center">
+                      <div class="title-text">
+                        📋 ${title}<br>
+                        <span class="wh-badge">مستودع: ${singleWhTitle}</span><br>
+                        <span class="serial">بيان رقم ${serialNumber}</span>
+                      </div>
+                  </div>
+                  <div class="left">
+                      <div class="date-time">📅 التاريخ: ${dateStr}</div>
+                      <div class="date-time">🕐 الوقت: ${timeStr}</div>
+                      <div class="date-time" style="margin-top:2px;">👤 المحرر: ${getPrintUserName(currentUserDisplay)}</div>
+                  </div>
+              </div>
+ 
+              <!-- Table Content -->
+              <div style="width: 100%; margin-bottom: 4px;">
+                  ${tableContentHtml}
+              </div>
+ 
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; padding: 4px 8px; border: 1.5px solid #000000; border-radius: 6px; background:#f8fafc; margin-bottom: 6px;">
+                  <div style="font-size: 13px; color: #000000; font-weight: 900;">
+                      📊 إجمالي الأصناف: <span style="font-size: 14.5px; text-decoration: underline;">${totalItemsCount}</span> صنف
+                      &nbsp;|&nbsp; 
+                      📦 إجمالي الكميات المطلوبة: <span style="font-size: 14.5px; text-decoration: underline;">${totalUnitsCount}</span> قطعة
+                  </div>
+                  <div style="font-size: 12px; font-weight: 800; color: #000000;">
+                      👤 المستلم / مسؤول المخزن: ____________________
+                  </div>
+              </div>
+
+              <div class="footer">
+                  ${getFooterHtml("الطلب")}
+                  <p style="margin: 2px 0;"><span class="copyright">حقوق الملكية: Mohamed Nazih | 📱 01029190615</span></p>
+              </div>
+          </div>
+          ${getUniversalPrintScript()}
+      </body>
+      </html>
+    `;
+
+    executeUniversalPrint(html, `${title} - ${singleWhTitle}`);
+    return;
+  }
+
+  // -------------------------------------------------------------
+  // Case 2: MULTI-WAREHOUSE / MERGED INVOICE (فواتير مدمجة لعدة مخازن)
+  // -------------------------------------------------------------
   const nahasItems: Item[] = [];
   const nadyItems: Item[] = [];
 
@@ -257,7 +642,6 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
     ) {
       nadyItems.push(item);
     } else {
-      // Distribute custom warehouses or manager warehouse items evenly to keep columns balanced
       if (nahasItems.length <= nadyItems.length) {
         nahasItems.push(item);
       } else {
@@ -266,7 +650,6 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
     }
   });
 
-  // Split logic: if a warehouse has more than 50 items, split into 2 columns (or "أ" and "ب")
   const splitIntoColumns = (itemsList: Item[], threshold = 50) => {
     if (itemsList.length > threshold) {
       const half = Math.ceil(itemsList.length / 2);
@@ -304,62 +687,21 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
   });
   if (maxItemsInAnyCol === 0) maxItemsInAnyCol = 1;
 
-  // Professional, highly readable sizing for A4 printing (portrait)
-  let normalFontSize = 12.0;
-  let normalCellPadding = "4px 6px";
-  let normalHeaderPadding = "5px 6px";
-  let normalHeaderBottomMargin = "6px";
-  let normalBodyPadding = "6px";
-  let normalHeaderFontSize = 14;
-  let normalTitleFontSize = 13;
-  let normalSubTitleFontSize = 10;
-  let normalLogoFontSize = 9.5;
-  let normalPageMargin = "10mm"; // 10mm as requested
-  let checkboxSize = 12;
-
-  if (maxItemsInAnyCol > 50) {
-    // Elegant Multi-page flow style, font is not too small!
-    normalFontSize = 11.5;
-    normalCellPadding = "2.5px 4px";
-    normalHeaderPadding = "3px 4px";
-    normalHeaderBottomMargin = "4px";
-    normalBodyPadding = "4px";
-    normalHeaderFontSize = 13;
-    normalTitleFontSize = 12;
-    normalSubTitleFontSize = 9.5;
-    normalLogoFontSize = 9.0;
-    normalPageMargin = "10mm";
-    checkboxSize = 11;
-  } else if (maxItemsInAnyCol > 35) {
-    normalFontSize = 11.8;
-    normalCellPadding = "3px 5px";
-    normalHeaderPadding = "4px 5px";
-    normalHeaderBottomMargin = "5px";
-    normalBodyPadding = "5px";
-    normalHeaderFontSize = 13.5;
-    normalTitleFontSize = 12.5;
-    normalSubTitleFontSize = 9.8;
-    normalLogoFontSize = 9.2;
-    normalPageMargin = "10mm";
-    checkboxSize = 11.5;
-  } else if (maxItemsInAnyCol > 15) {
-    normalFontSize = 12.0;
-    normalCellPadding = "3.5px 5.5px";
-    normalHeaderPadding = "4.5px 5.5px";
-    normalHeaderBottomMargin = "6px";
-    normalBodyPadding = "5.5px";
-    normalHeaderFontSize = 14;
-    normalTitleFontSize = 13;
-    normalSubTitleFontSize = 10;
-    normalLogoFontSize = 9.5;
-    normalPageMargin = "10mm";
-    checkboxSize = 12;
-  }
+  const normalFontSize = maxItemsInAnyCol > 50 ? 11.5 : maxItemsInAnyCol > 35 ? 11.8 : 12.0;
+  const normalCellPadding = maxItemsInAnyCol > 50 ? "2.5px 4px" : "3.5px 5.5px";
+  const normalHeaderPadding = "4px 5px";
+  const normalHeaderBottomMargin = "6px";
+  const normalBodyPadding = "6px";
+  const normalHeaderFontSize = 14;
+  const normalTitleFontSize = 13;
+  const normalSubTitleFontSize = 10;
+  const normalLogoFontSize = 9.5;
+  const normalPageMargin = "8mm 10mm";
 
   const activeWhs: string[] = [];
   if (nahasItems.length > 0) activeWhs.push("النحاس");
   if (nadyItems.length > 0) activeWhs.push("النادي");
-  const sharedWhsStr = activeWhs.join(" - ") || "لا يوجد";
+  const sharedWhsStr = activeWhs.join(" - ") || "المخازن المشتركة";
 
   let columnsHtml = "";
   columnsToRender.forEach(col => {
@@ -368,7 +710,6 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
       const warehouseTag = item.warehouse || col.title;
       const dupTag = item.duplicateNote ? ` <span class="dup-badge">🔄 مكرر</span>` : '';
       
-      // Clean notes from any verbose auto-generated resend text
       const cleanNote = (item.note || "")
         .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
         .replace(/[\(（]?\s*لم يصل[^\)）]*[\)）]?/g, "")
@@ -376,7 +717,6 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
         .trim();
       const noteTag = cleanNote && cleanNote !== "-" ? ` <span class="item-note">(${cleanNote})</span>` : '';
 
-      // Clean fixed name from any accidental concatenated resend text
       const cleanFixedName = (item.fixedName || item.description || "")
         .replace(/[\(（]?\s*إعادة إرسال لبند لم يصل[^\)）]*[\)）]?/g, "")
         .trim();
@@ -394,12 +734,12 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
 
       rowsHtml += `
         <tr>
-          <td style="width: 6%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${index + 1 + col.startIndex}</td>
-          <td style="width: 11%; text-align: center; font-weight: 900; color: #000000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
-          <td style="width: 71%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${cleanFixedName}">
+          <td style="width: 6%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight:800;">${index + 1 + col.startIndex}</td>
+          <td style="width: 12%; text-align: center; font-weight: 900; color: #000000; font-size:13.5px;">${isPartial ? (item.remainingQty || "0") : (item.company || "1")}</td>
+          <td style="width: 72%; text-align: right; font-weight: 700; padding: 4px 6px; white-space: normal; word-break: break-word; line-height: 1.3;" title="${cleanFixedName}">
             ${cleanFixedName}${displayTag}${dupTag}${notArrivedTag}${noteTag}${partialPrintHtml}
           </td>
-          <td style="width: 12%; text-align: center; padding: 1px 1px; white-space: nowrap;">
+          <td style="width: 10%; text-align: center; padding: 1px 1px; white-space: nowrap;">
             <span class="print-checkbox"></span>
           </td>
         </tr>
@@ -421,8 +761,8 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
               <thead>
                   <tr>
                       <th style="width: 6%; text-align: center; white-space: nowrap;">#</th>
-                      <th style="width: 11%; text-align: center; white-space: nowrap;">العدد</th>
-                      <th style="width: 73%; text-align: right; padding-right: 4px; white-space: nowrap;">اسم الصنف والبيان</th>
+                      <th style="width: 12%; text-align: center; white-space: nowrap;">العدد</th>
+                      <th style="width: 72%; text-align: right; padding-right: 4px; white-space: nowrap;">اسم الصنف والبيان</th>
                       <th style="width: 10%; text-align: center; white-space: nowrap;">✓</th>
                   </tr>
               </thead>
@@ -435,15 +775,17 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
   });
 
   const html = `
-      <html dir="rtl">
+      <!DOCTYPE html>
+      <html lang="ar" dir="rtl">
       <head>
           <meta charset="UTF-8">
           <title>${title} - ${serialNumber}</title>
           <style>
               * { 
-                  font-family: 'Arial', 'Segoe UI', sans-serif !important; 
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", Tahoma, Arial, sans-serif !important; 
                   -webkit-print-color-adjust: exact !important; 
                   print-color-adjust: exact !important;
+                  color-adjust: exact !important;
                   box-sizing: border-box !important;
               }
               body { 
@@ -623,7 +965,7 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
               .copyright { font-weight: 700 !important; font-size: 10px !important; color: #000000 !important; }
               
               @media print {
-                  button, .no-print, .btn, .sidebar, input, select {
+                  button, .no-print, .btn, .sidebar, input, select, .no-print-universal-bar {
                       display: none !important;
                   }
                   body { 
@@ -660,7 +1002,6 @@ export function printInvoice(items: Item[], title = "فاتورة النواقص
                   .header { border-bottom: 2.5px solid #000000 !important; }
                   .footer { border-top: 2.5px solid #000000 !important; }
                   thead { display: table-header-group !important; }
-                  .no-print-universal-bar { display: none !important; }
                   @page { 
                       size: A4 portrait !important; 
                       margin: ${normalPageMargin} !important; 
