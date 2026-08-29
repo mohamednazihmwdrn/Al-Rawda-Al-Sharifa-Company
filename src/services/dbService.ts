@@ -25,7 +25,7 @@ import {
   TrashItem
 } from "../types";
 import { companyItemsMap } from "../data/constants";
-import { isSameDay } from "../utils/date";
+import { isSameDay, isTodayRecord } from "../utils/date";
 
 // Helper function to recursively clean "undefined" values from objects, replacing them with null, 
 // to prevent Firestore "Unsupported field value: undefined" validation errors.
@@ -1109,6 +1109,167 @@ export async function clearExperimentalOperationsOnly() {
       handleFirestoreError(err, OperationType.GET, colName);
     }
   }
+}
+
+/**
+ * Cleans the database from any sent or received invoices, archives, reports,
+ * items, and trash from previous days, keeping ONLY invoices and operations
+ * created or active TODAY.
+ */
+export async function cleanAllExceptToday(): Promise<{
+  cleanedInvoicesCount: number;
+  cleanedItemsCount: number;
+  cleanedArchivesCount: number;
+  cleanedWarehouseArchivesCount: number;
+  cleanedReportsCount: number;
+  cleanedTrashCount: number;
+}> {
+  let cleanedInvoicesCount = 0;
+  let cleanedItemsCount = 0;
+  let cleanedArchivesCount = 0;
+  let cleanedWarehouseArchivesCount = 0;
+  let cleanedReportsCount = 0;
+  let cleanedTrashCount = 0;
+
+  // 1. Clean mergedInvoices (الفواتير المدمجة والمرسلة)
+  const localInvoices = getLocal<MergedInvoice[]>("mergedInvoices", []);
+  const todayInvoices = localInvoices.filter(inv => isTodayRecord(inv));
+  cleanedInvoicesCount += (localInvoices.length - todayInvoices.length);
+  setLocal("mergedInvoices", todayInvoices);
+  notifyLocalListeners("mergedInvoices", todayInvoices);
+
+  // 2. Clean items (الأصناف والنواقص والفواتير المفتوحة)
+  const localItems = getLocal<Item[]>("items", []);
+  const todayItems = localItems.filter(item => isTodayRecord(item));
+  cleanedItemsCount += (localItems.length - todayItems.length);
+  setLocal("items", todayItems);
+  notifyLocalListeners("items", todayItems);
+
+  // 3. Clean archives (أرشيف الفواتير المعتمدة والمحفوظة)
+  const localArchives = getLocal<Archive[]>("archives", []);
+  const todayArchives = localArchives.filter(arch => isTodayRecord(arch));
+  cleanedArchivesCount += (localArchives.length - todayArchives.length);
+  setLocal("archives", todayArchives);
+  notifyLocalListeners("archives", todayArchives);
+
+  // 4. Clean warehouseArchives (أرشيف فواتير المستودعات)
+  const localWhArchives = getLocal<WarehouseArchive[]>("warehouseArchives", []);
+  const todayWhArchives = localWhArchives.filter(arch => isTodayRecord(arch));
+  cleanedWarehouseArchivesCount += (localWhArchives.length - todayWhArchives.length);
+  setLocal("warehouseArchives", todayWhArchives);
+  notifyLocalListeners("warehouseArchives", todayWhArchives);
+
+  // 5. Clean reports (تقارير استلام الفواتير اليومية)
+  const localReports = getLocal<Report[]>("reports", []);
+  const todayReports = localReports.filter(rep => isTodayRecord(rep));
+  cleanedReportsCount += (localReports.length - todayReports.length);
+  setLocal("reports", todayReports);
+  notifyLocalListeners("reports", todayReports);
+
+  // 6. Clean trash (سلة المهملات)
+  const localTrash = getLocal<TrashItem[]>("trash", []);
+  const todayTrash = localTrash.filter(t => {
+    if (!t) return false;
+    if (t.data && isTodayRecord(t.data)) return true;
+    const ts = t.deletedTimestamp || 0;
+    if (ts > 0) {
+      const d = new Date(ts);
+      const now = new Date();
+      return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      );
+    }
+    return false;
+  });
+  cleanedTrashCount += (localTrash.length - todayTrash.length);
+  setLocal("trash", todayTrash);
+  notifyLocalListeners("trash", todayTrash);
+
+  // Firestore sync cleanup
+  if (!isFirestoreQuotaExhausted) {
+    try {
+      // Clean mergedInvoices from Firestore
+      const invSnap = await getDocs(collection(db, "mergedInvoices"));
+      for (const d of invSnap.docs) {
+        const data = d.data() as MergedInvoice;
+        if (!isTodayRecord(data)) {
+          await safeDeleteDoc(doc(db, "mergedInvoices", d.id));
+        }
+      }
+
+      // Clean items from Firestore
+      const itemsSnap = await getDocs(collection(db, "items"));
+      for (const d of itemsSnap.docs) {
+        const data = d.data() as Item;
+        if (!isTodayRecord(data)) {
+          await safeDeleteDoc(doc(db, "items", d.id));
+        }
+      }
+
+      // Clean archives from Firestore
+      const archSnap = await getDocs(collection(db, "archives"));
+      for (const d of archSnap.docs) {
+        const data = d.data() as Archive;
+        if (!isTodayRecord(data)) {
+          await safeDeleteDoc(doc(db, "archives", d.id));
+        }
+      }
+
+      // Clean warehouseArchives from Firestore
+      const whArchSnap = await getDocs(collection(db, "warehouseArchives"));
+      for (const d of whArchSnap.docs) {
+        const data = d.data() as WarehouseArchive;
+        if (!isTodayRecord(data)) {
+          await safeDeleteDoc(doc(db, "warehouseArchives", d.id));
+        }
+      }
+
+      // Clean reports from Firestore
+      const repSnap = await getDocs(collection(db, "reports"));
+      for (const d of repSnap.docs) {
+        const data = d.data() as Report;
+        if (!isTodayRecord(data)) {
+          await safeDeleteDoc(doc(db, "reports", d.id));
+        }
+      }
+
+      // Clean trash from Firestore
+      const trashSnap = await getDocs(collection(db, "trash"));
+      for (const d of trashSnap.docs) {
+        const data = d.data() as TrashItem;
+        let keep = false;
+        if (data && data.data && isTodayRecord(data.data)) {
+          keep = true;
+        } else if (data && data.deletedTimestamp) {
+          const dObj = new Date(data.deletedTimestamp);
+          const now = new Date();
+          if (
+            dObj.getFullYear() === now.getFullYear() &&
+            dObj.getMonth() === now.getMonth() &&
+            dObj.getDate() === now.getDate()
+          ) {
+            keep = true;
+          }
+        }
+        if (!keep) {
+          await safeDeleteDoc(doc(db, "trash", d.id));
+        }
+      }
+    } catch (err) {
+      console.warn("Firestore cleanAllExceptToday handled error:", err);
+    }
+  }
+
+  return {
+    cleanedInvoicesCount,
+    cleanedItemsCount,
+    cleanedArchivesCount,
+    cleanedWarehouseArchivesCount,
+    cleanedReportsCount,
+    cleanedTrashCount
+  };
 }
 
 // Bulk restore data (from JSON backup)

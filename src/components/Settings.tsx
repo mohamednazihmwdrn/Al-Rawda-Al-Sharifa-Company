@@ -13,6 +13,7 @@ import {
   bulkRestoreDatabase, 
   clearAllDatabaseTables, 
   clearExperimentalOperationsOnly, 
+  cleanAllExceptToday,
   CustomCompany, 
   CompanyInfo, 
   getMergedCompanyMap,
@@ -444,6 +445,14 @@ export default function Settings({
     }
   };
 
+  const handleCleanExceptToday = async () => {
+    if (confirm("🧹 تنظيف فواتير الأيام السابقة:\n\nهل تريد حذف كافة الفواتير والأرشيف والتقارير المرسلة والمستلمة في الأيام السابقة والإبقاء فقط على فواتير اليوم؟")) {
+      const res = await cleanAllExceptToday();
+      alert(`✅ تم تنظيف المنظومة بنجاح!\n\nتم حذف السجلات السابقة والإبقاء فقط على فواتير وعمليات اليوم.\n- الفواتير المدمجة المنظفة: ${res.cleanedInvoicesCount}\n- الأصناف المنظفة: ${res.cleanedItemsCount}\n- سجلات الأرشيف: ${res.cleanedArchivesCount + res.cleanedWarehouseArchivesCount}\n- التقارير: ${res.cleanedReportsCount}`);
+      onDatabaseRefreshed();
+    }
+  };
+
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-8">
       <div className="card-title text-xl font-bold border-r-4 border-[#8b6b4d] pr-3 mb-6">
@@ -643,6 +652,12 @@ export default function Settings({
               📤 استعادة نسخة احتياطية سابقة
               <input type="file" accept=".json" onChange={handleRestore} className="hidden" />
             </label>
+            <button
+              onClick={handleCleanExceptToday}
+              className="py-2.5 bg-[#8b6b4d] hover:bg-[#725439] text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex justify-center items-center gap-1.5 shadow-sm"
+            >
+              🧹 تنظيف فواتير الأيام السابقة (الإبقاء على فواتير وعمليات اليوم فقط)
+            </button>
             <button
               onClick={handleClearExperimental}
               className="py-2.5 bg-[#4b5563] hover:bg-[#374151] text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex justify-center items-center gap-1.5 shadow-sm"

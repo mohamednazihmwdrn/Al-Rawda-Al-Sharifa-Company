@@ -117,6 +117,84 @@ export function isSameDay(date1?: string, date2?: string): boolean {
 }
 
 /**
+ * Checks if a record (invoice, item, archive, report) was created or belongs to TODAY.
+ */
+export function isTodayRecord(record: { date?: string; time?: string; createdAt?: number | string; approvedAt?: string; savedAt?: string }): boolean {
+  if (!record) return false;
+  const now = new Date();
+  
+  // 1. Check direct date string
+  if (record.date) {
+    const todayAr = now.toLocaleDateString("ar-EG");
+    const todayEn = now.toLocaleDateString("en-US");
+    const todayIso = now.toISOString().split("T")[0];
+    
+    if (
+      isSameDay(record.date, todayAr) || 
+      isSameDay(record.date, todayEn) || 
+      isSameDay(record.date, todayIso)
+    ) {
+      return true;
+    }
+    
+    const parsedDate = parseArabicOrStandardDate(record.date, record.time);
+    if (!isNaN(parsedDate.getTime()) && parsedDate.getTime() > 0) {
+      if (
+        parsedDate.getFullYear() === now.getFullYear() &&
+        parsedDate.getMonth() === now.getMonth() &&
+        parsedDate.getDate() === now.getDate()
+      ) {
+        return true;
+      }
+    }
+  }
+
+  // 2. Check createdAt timestamp
+  if (record.createdAt) {
+    const ts = typeof record.createdAt === "number" ? record.createdAt : new Date(record.createdAt).getTime();
+    if (!isNaN(ts) && ts > 0) {
+      const d = new Date(ts);
+      if (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      ) {
+        return true;
+      }
+    }
+  }
+
+  // 3. Check approvedAt or savedAt
+  if (record.approvedAt) {
+    const d = parseArabicOrStandardDate(record.approvedAt);
+    if (!isNaN(d.getTime()) && d.getTime() > 0) {
+      if (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      ) {
+        return true;
+      }
+    }
+  }
+
+  if (record.savedAt) {
+    const d = parseArabicOrStandardDate(record.savedAt);
+    if (!isNaN(d.getTime()) && d.getTime() > 0) {
+      if (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Comparator to sort dates/times descending (newest on top, oldest at bottom)
  */
 export function compareDatesDescending<T extends { date?: string; time?: string; invoiceNumber?: number; createdAt?: number | string }>(a: T, b: T): number {
