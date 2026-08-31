@@ -277,9 +277,6 @@ export default function App() {
     // Automatic clean-up of trash older than 15 days
     autoCleanOldTrash().catch(e => console.error("Auto clean trash error:", e));
 
-    // Automatically clean previous days' invoices and records, leaving only today's invoices
-    cleanAllExceptToday().catch(e => console.error("Auto clean except today error:", e));
-
     return () => {
       unsubUsers();
       unsubItems();

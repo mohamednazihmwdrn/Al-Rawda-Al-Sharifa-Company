@@ -57,6 +57,14 @@ export default function Cart({
   const quantityInputRef = useRef<HTMLInputElement>(null);
   const itemNameInputRef = useRef<HTMLInputElement>(null);
 
+  // Auto-focus the quantity field when the cart opens
+  useEffect(() => {
+    const t = setTimeout(() => {
+      quantityInputRef.current?.focus();
+    }, 100);
+    return () => clearTimeout(t);
+  }, []);
+
   // Autocomplete state
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteResults, setAutocompleteResults] = useState<SavedItem[]>([]);
@@ -258,13 +266,20 @@ export default function Cart({
   }, []);
 
   const handleAddToCart = () => {
+    if (!quantity.trim()) {
+      alert("⚠️ الرجاء كتابة العدد (الكمية المطلوبة) للصنف أولاً!");
+      quantityInputRef.current?.focus();
+      return;
+    }
+
     if (!itemName.trim()) {
-      alert("⚠️ الرجاء كتابة اسم الصنف أولاً!");
+      alert("⚠️ الرجاء كتابة اسم الصنف!");
+      itemNameInputRef.current?.focus();
       return;
     }
 
     const todayStr = new Date().toLocaleDateString("ar-EG");
-    const formattedQty = quantity.trim() ? quantity.trim() : "-";
+    const formattedQty = quantity.trim();
 
     // Regular add - allow any warehouse to add any item freely
     const newItem: LocalCartItem = {
@@ -290,27 +305,43 @@ export default function Cart({
 
     setItemName("");
     setQuantity("");
+    setShowAutocomplete(false);
+    setActiveIndex(-1);
+
+    // Refocus on quantity input for ultra-fast, smooth sequential entry
     setTimeout(() => {
-      itemNameInputRef.current?.focus();
+      quantityInputRef.current?.focus();
     }, 50);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      if (!quantity.trim()) {
+        alert("⚠️ الرجاء كتابة العدد (الكمية المطلوبة) أولاً قبل إضافة الصنف!");
+        quantityInputRef.current?.focus();
+        return;
+      }
       if (showAutocomplete && activeIndex >= 0 && autocompleteResults[activeIndex]) {
         const item = autocompleteResults[activeIndex];
-        setItemName(item.name);
+        setItemName(item.fixedName || item.name);
         setShowAutocomplete(false);
+        setActiveIndex(-1);
       } else {
         handleAddToCart();
       }
     } else if (e.key === "ArrowDown" && showAutocomplete) {
       e.preventDefault();
       setActiveIndex(prev => Math.min(prev + 1, autocompleteResults.length - 1));
-    } else if (e.key === "ArrowUp" && showAutocomplete) {
-      e.preventDefault();
-      setActiveIndex(prev => Math.max(prev - 1, -1));
+    } else if (e.key === "ArrowUp") {
+      if (showAutocomplete) {
+        e.preventDefault();
+        setActiveIndex(prev => Math.max(prev - 1, -1));
+      } else if (!itemName.trim() || (e.target as HTMLInputElement).selectionStart === 0) {
+        // Return to quantity input on ArrowUp if empty or at start
+        e.preventDefault();
+        quantityInputRef.current?.focus();
+      }
     }
   };
 
@@ -525,38 +556,57 @@ export default function Cart({
         <div className="space-y-4 bg-gray-50/60 p-5 rounded-2xl border border-gray-100">
           <div className="flex flex-col gap-1.5">
             <label className="font-extrabold text-sm text-gray-700 flex items-center gap-1.5">
-              <span>🔢 خانة أعداد للأصناف</span>
-              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">(اختياري - اكتب العدد إن وُجد)</span>
+              <span>🔢 خانة العدد</span>
             </label>
             <input
               ref={quantityInputRef}
               type="text"
-              placeholder="اكتب العدد أو الكمية إن وُجدت (مثال: 5، 2 بستلة، 20 علبة... أو اتركه فارغاً)"
+              placeholder="اكتب العدد هنا..."
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" || e.key === "Tab") {
                   e.preventDefault();
-                  itemNameInputRef.current?.focus();
+                  if (quantity.trim()) {
+                    itemNameInputRef.current?.focus();
+                  } else {
+                    quantityInputRef.current?.focus();
+                  }
                 }
               }}
-              className="w-full p-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#8b6b4d] focus:outline-none transition-all text-sm font-bold text-gray-800 shadow-xs"
+              className="w-full p-3 bg-white border-2 border-gray-200 focus:border-[#8b6b4d] rounded-xl focus:outline-none transition-all text-sm font-bold text-gray-800 shadow-xs"
             />
           </div>
 
           <div className="flex flex-col gap-1.5 relative" ref={containerRef}>
             <label className="font-extrabold text-sm text-gray-700 flex items-center gap-1.5">
               <span>📝 خانة كتابة الأصناف</span>
-              <span className="text-[11px] font-normal text-gray-400">(اسم الصنف والمواصفات)</span>
             </label>
             <input
               ref={itemNameInputRef}
               type="text"
               placeholder="اكتب اسم الصنف هنا..."
               value={itemName}
+              disabled={!quantity.trim()}
               onChange={(e) => setItemName(e.target.value)}
+              onFocus={(e) => {
+                if (!quantity.trim()) {
+                  e.preventDefault();
+                  quantityInputRef.current?.focus();
+                }
+              }}
+              onClick={(e) => {
+                if (!quantity.trim()) {
+                  e.preventDefault();
+                  quantityInputRef.current?.focus();
+                }
+              }}
               onKeyDown={handleKeyDown}
-              className="w-full p-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#8b6b4d] focus:outline-none transition-all text-sm font-bold text-gray-800 shadow-xs"
+              className={`w-full p-3 border-2 rounded-xl focus:border-[#8b6b4d] focus:outline-none transition-all text-sm font-bold text-gray-800 shadow-xs ${
+                !quantity.trim()
+                  ? "bg-gray-100/80 border-gray-200 cursor-not-allowed opacity-60"
+                  : "bg-white border-gray-200"
+              }`}
               autoComplete="off"
             />
             {/* Autocomplete list */}

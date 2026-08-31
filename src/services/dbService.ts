@@ -536,10 +536,10 @@ export async function getPendingItemsFromDb(): Promise<Item[]> {
   }
 }
 
-export async function getPendingMergedInvoicesFromDb(today: string): Promise<MergedInvoice[]> {
+export async function getPendingMergedInvoicesFromDb(today?: string): Promise<MergedInvoice[]> {
   const local = getLocal<MergedInvoice[]>("mergedInvoices", []);
   if (isFirestoreQuotaExhausted) {
-    return local.filter(m => m.status === "pending" && (isSameDay(m.date, today) || !m.date));
+    return local.filter(m => m.status === "pending");
   }
   try {
     const q = query(
@@ -550,17 +550,15 @@ export async function getPendingMergedInvoicesFromDb(today: string): Promise<Mer
     const invoices: MergedInvoice[] = [];
     snapshot.forEach((doc) => {
       const inv = doc.data() as MergedInvoice;
-      if (isSameDay(inv.date, today) || !inv.date) {
-        invoices.push(inv);
-      }
+      invoices.push(inv);
     });
     if (invoices.length > 0) {
       return invoices;
     }
-    return local.filter(m => m.status === "pending" && (isSameDay(m.date, today) || !m.date));
+    return local.filter(m => m.status === "pending");
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, "mergedInvoices");
-    return local.filter(m => m.status === "pending" && (isSameDay(m.date, today) || !m.date));
+    return local.filter(m => m.status === "pending");
   }
 }
 
